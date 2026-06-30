@@ -50,6 +50,12 @@ Para la versión de prueba en Telegram, sugiero la opción A: que el soporte por
 ### Si hay que volver a vincular
 Si el servicio pierde la sesión (por ejemplo, si Víctor cierra la sesión desde el celular, o se borra el Volume), simplemente hay que volver a escanear un QR nuevo que va a aparecer solo en los logs.
 
+### Error de sesión corrupta ("Failed to decrypt message", "MessageCounterError")
+Esto pasa de vez en cuando con Baileys, sobre todo después de varias reconexiones forzadas seguidas. El código ya está preparado para no crashear todo el proceso cuando aparece. Si los errores se vuelven muy frecuentes o el bot deja de responder bien, lo más prolijo es resetear la sesión:
+1. En Railway, andá al servicio → la pestaña del Volume (`thriving-victory-volume`) → buscá la opción de explorar/borrar archivos, o si no está disponible ahí, podés borrar la carpeta `whatsapp-auth` conectándote por la Console del servicio con el comando `rm -rf /data/whatsapp-auth`.
+2. Redeployá el servicio.
+3. Va a generar un QR nuevo en `/qr` — Víctor tiene que volver a vincular el dispositivo una vez más.
+
 ## Próximos pasos
 - Probar el bot con preguntas reales del día a día.
 - Revisar y completar la base de conocimiento (`src/knowledge_base.md`) a medida que aparezcan casos nuevos.
