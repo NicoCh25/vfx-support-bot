@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,7 +11,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const HUMAN_PAUSE_HOURS = 24;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const HUMAN_PAUSE_HOURS = 1; // pausa de 1 hora cuando Víctor responde manual
 const MAX_HISTORY_MESSAGES = 12; // últimas 6 idas y vueltas por chat
 
 if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -20,6 +22,7 @@ if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 export const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+export const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // ---------- Base de conocimiento ----------
 export const knowledgeBase = fs.readFileSync(path.join(__dirname, 'knowledge_base.md'), 'utf-8');
@@ -56,14 +59,14 @@ Reglas estrictas:
 13. Tenés imágenes disponibles para mandar cuando realmente ayuden a entender algo visual. Para mandar una, escribí el tag exacto en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar):
 - [IMG:planes_deposito] → tabla de planes por depósito
 - [IMG:libertex_pasos] → paso a paso de registro y verificación en Libertex
-- [IMG:libertex_id_mt5] → dónde encontrar el número de cuenta/ID de MT5 dentro de la app de Libertex (usar cuando el usuario no sabe cómo encontrar su ID para mandarlo)
-- [IMG:tabla_lotaje] → tabla de lotaje recomendado por activo (XAUUSD, US30/YM, BTCUSD) según el riesgo en dólares
-- [IMG:trade_us30] → cómo tomar el trade en US30 (las 2 formas: cerrar parcial en TP1 o dejar correr a TP2)
-- [IMG:trade_xauusd] → cómo tomar el trade en XAUUSD (colocar la orden y dejar correr)
-- [IMG:trade_btc] → cómo tomar el trade en BTC/USD (colocar la orden y dejar correr)
-- [IMG:pago_confirmado_vip] → pantalla de "¡Pago confirmado!" mostrando el botón "Unirme al grupo VIP" (mandar esto SIEMPRE después de que alguien confirma que ya pagó la membresía, para que sepa que tiene que tocar ese botón y darle "START" en Telegram)
-- [IMG:app_abrir_bot] → pantalla del dashboard (vfxsignals.com/app) con el botón "Abrir bot" para conectar Telegram (mandar esto cuando alguien dice que no le aparece nada en Telegram, o no recibió el link al grupo — se lo manda a /app a tocar "Abrir bot")
-Usalas con criterio, no en cada mensaje — solo cuando el usuario está en ese paso puntual o pregunta algo que la imagen explica mejor que el texto. La imagen siempre se manda ANTES que tu texto, así que si hacés referencia a ella usá un emoji que apunte hacia arriba (👆), nunca hacia abajo (👇).
+- [IMG:libertex_id_mt5] → dónde encontrar el número de cuenta/ID de MT5 dentro de la app de Libertex
+- [IMG:tabla_lotaje] → tabla de lotaje recomendado por activo
+- [IMG:trade_us30] → cómo tomar el trade en US30
+- [IMG:trade_xauusd] → cómo tomar el trade en XAUUSD
+- [IMG:trade_btc] → cómo tomar el trade en BTC/USD
+- [IMG:pago_confirmado_vip] → pantalla de "¡Pago confirmado!" con botón "Unirme al grupo VIP" (mandar SIEMPRE después de pago confirmado)
+- [IMG:app_abrir_bot] → pantalla del dashboard con botón "Abrir bot" (mandar cuando no le aparece nada en Telegram)
+Si el usuario manda una imagen que parece un comprobante de pago o transferencia bancaria: confirmale que se ve bien, y si es nuevo mandalo a https://vfxsignals.com/registro-broker para registrar ese depósito (sección 7.0 de la base). Usalas con criterio — solo cuando el usuario está en ese paso puntual. La imagen siempre se manda ANTES que tu texto, así que referenciala con 👆, nunca 👇.
 14. Nunca dejes líneas en blanco dobles ni espacios vacíos largos en el medio de un mensaje — escribí en párrafos cortos y seguidos, como un chat real, no como un documento con saltos de sección.
 15. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
 16. Si estás operando en el canal de WhatsApp (conexión no oficial), seguí también las reglas anti-baneo de la sección 20 de la base de conocimiento: nunca iniciar conversación salvo el seguimiento del canal gratis, y ese seguimiento siempre con horarios y textos variados entre contacto y contacto, nunca en tanda.
@@ -178,6 +181,64 @@ export function randomDelayMs(minSeconds = 2, maxSeconds = 6) {
 
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------- Transcripción de audios con Whisper (OpenAI) ----------
+export async function transcribeAudio(audioBuffer, mimeType = 'audio/ogg') {
+  if (!openai) {
+    console.warn('[Audio] OPENAI_API_KEY no configurada, no se puede transcribir.');
+    return null;
+  }
+  try {
+    const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'ogg';
+    const tmpPath = path.join('/tmp', `audio_${Date.now()}.${ext}`);
+    fs.writeFileSync(tmpPath, audioBuffer);
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tmpPath),
+      model: 'whisper-1',
+      language: 'es',
+    });
+    fs.unlinkSync(tmpPath); // limpiamos el archivo temporal
+    return transcription.text?.trim() || null;
+  } catch (err) {
+    console.error('[Audio] Error transcribiendo:', err.message);
+    return null;
+  }
+}
+
+// ---------- Análisis de imágenes con Claude Vision ----------
+export async function analyzeImage(imageBuffer, mimeType = 'image/jpeg', contextText = '') {
+  try {
+    const base64 = imageBuffer.toString('base64');
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      system: SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: base64 },
+          },
+          {
+            type: 'text',
+            text: contextText
+              ? `El usuario mandó esta imagen y dijo: "${contextText}". Respondé en base a lo que ves y a la base de conocimiento.`
+              : 'El usuario mandó esta imagen sin texto. Describí brevemente lo que ves y respondé si es relevante para VFX Signals (ej: comprobante de pago, captura de error, ID de cuenta, etc.).',
+          },
+        ],
+      }],
+    });
+    return response.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+  } catch (err) {
+    console.error('[Imagen] Error analizando:', err.message);
+    return null;
+  }
 }
 
 // ---------- Seguimiento automático espaciado (sección 19.7 de la base de conocimiento) ----------
