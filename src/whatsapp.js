@@ -28,6 +28,15 @@ if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
 const PORT = process.env.PORT || 3000;
 
+// Resguardo: errores de sesión/cifrado de Baileys (común tras reconexiones forzadas) no deberían
+// tirar abajo todo el proceso. Los logueamos y seguimos andando.
+process.on('unhandledRejection', (err) => {
+  console.error('[WhatsApp] unhandledRejection (no debería crashear el proceso):', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[WhatsApp] uncaughtException (no debería crashear el proceso):', err?.message || err);
+});
+
 // ---------- Servidor web: muestra el QR como imagen para escanear fácil desde el celular ----------
 let latestQrDataUrl = null;
 let connectionStatus = 'Iniciando...';
