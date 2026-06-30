@@ -41,6 +41,8 @@ Son un EXTRA para quienes ya pagan la membresía VIP (mensual o trimestral) — 
 ## 6. Cómo pagar la membresía (regla principal)
 **Siempre recomendar hacerlo a través del link de registro**, porque ahí se eligen las 3 formas de pago Y además es el paso obligatorio para poder acceder después al canal VIP de Telegram (sin pasar por el dashboard, no hay acceso al canal).
 
+⚠️ El acceso al canal VIP NO es 100% automático con solo pagar: después de pagar, el usuario tiene que entrar a su dashboard (https://vfxsignals.com/app) y darle clic a "Conectar bot" para que el bot de VFX Signals lo agregue al canal. Ver sección 7 para el detalle completo.
+
 - **Si el usuario NO está registrado todavía:**
   Mandarlo a 👉 https://vfxsignals.com/registro
   Ahí completa sus datos y elige entre:
@@ -60,8 +62,12 @@ Datos de respaldo por si el usuario tiene problemas con la transferencia bancari
 - ⚠️ NO mandar por alias.
 - Comprobante por WhatsApp a Víctor: +595 982 451399
 
-## 7. Cómo unirse al canal VIP
-Después del pago confirmado, el bot genera automáticamente un link de invitación al canal VIP de Telegram.
+## 7. Cómo unirse al canal VIP (paso final, después del pago)
+Después de pagar y registrarse, hay un paso obligatorio que el usuario tiene que hacer él mismo: en su dashboard (https://vfxsignals.com/app), le va a aparecer la opción de **"Conectar bot"** (el bot de VFX Signals en Telegram). Tiene que sí o sí darle clic a "Conectar" para poder acceder al canal VIP.
+
+Ese bot es el que gestiona el acceso: le da entrada al canal VIP por 30 días, y automáticamente lo saca del grupo al vencer ese período (para renovar y seguir adentro, tiene que pagar la siguiente membresía).
+
+⚠️ Si un usuario dice "pagué pero no tengo acceso al canal", lo primero que hay que preguntarle es si ya le dio clic a "Conectar bot" en su dashboard — es la causa más común de ese problema.
 
 ## 8. Activos y horarios de señales VIP
 Mismos horarios y parámetros que TCT:
