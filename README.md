@@ -39,9 +39,13 @@ Para la versión de prueba en Telegram, sugiero la opción A: que el soporte por
 3. **Agregá un Volume** (disco persistente) a este servicio: Railway → el servicio → pestaña **Volumes** → "New Volume" → montalo en una ruta, por ejemplo `/data`.
 4. Agregá la variable de entorno `WHATSAPP_AUTH_DIR` con el valor `/data/whatsapp-auth` (para que la sesión de login se guarde en el disco persistente y no se pierda en cada redeploy).
 5. Las demás variables (`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`) son las mismas que ya tenés cargadas — copialas a este servicio nuevo también.
-6. Hacé deploy y andá a la pestaña **Console** o **Deploy Logs** del servicio: ahí va a aparecer un código QR en texto (ASCII).
-7. Desde el celular de Víctor: WhatsApp → Configuración → **Dispositivos vinculados** → "Vincular un dispositivo" → escanear ese QR.
-8. Una vez vinculado, el log va a mostrar "VFX Support Bot (WhatsApp) corriendo ✅" y el bot ya está activo en ese número.
+6. Hacé deploy. Este servicio ahora levanta también un mini servidor web para mostrar el QR como imagen. Para verlo necesitás un dominio público:
+   - Andá a este servicio → **Settings → Networking** → "Generate Domain"
+   - Railway te da una URL tipo `https://thriving-victory-production.up.railway.app`
+   - Abrí `esa-url/qr` desde el navegador del celular de Víctor (o el tuyo, para escanearlo con la cámara apuntando a otra pantalla)
+   - Ahí vas a ver el código QR como una imagen normal, fácil de escanear
+7. Desde el celular de Víctor: WhatsApp → Configuración → **Dispositivos vinculados** → "Vincular un dispositivo" → escanear ese QR (los QR de WhatsApp vencen rápido, en menos de un minuto — si tarda, refrescá la página `/qr` para que aparezca uno nuevo).
+8. Una vez vinculado, esa misma página `/qr` va a mostrar "✅ Conectado y funcionando" en vez del QR, y los logs van a decir "VFX Support Bot (WhatsApp) corriendo ✅".
 
 ### Si hay que volver a vincular
 Si el servicio pierde la sesión (por ejemplo, si Víctor cierra la sesión desde el celular, o se borra el Volume), simplemente hay que volver a escanear un QR nuevo que va a aparecer solo en los logs.
