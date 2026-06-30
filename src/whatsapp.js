@@ -17,6 +17,8 @@ import {
   extractImagesAndCleanText,
   randomDelayMs,
   sleep,
+  scheduleFollowUp,
+  cancelFollowUp,
 } from './core.js';
 
 // Carpeta donde se guarda la sesión de WhatsApp (login). DEBE vivir en un Volume persistente
@@ -135,6 +137,7 @@ async function startWhatsApp() {
           // Es Víctor respondiendo manualmente desde su celular: pausamos el bot 24hs en este chat.
           console.log(`[WhatsApp] Víctor respondió manualmente en ${jid}. Pausando el bot 24hs ahí.`);
           await markHumanReply(key);
+          cancelFollowUp(key); // si había un seguimiento pendiente, ya no corresponde
         }
         continue; // nunca generamos respuesta a un mensaje que salió de este mismo número
       }
@@ -145,6 +148,8 @@ async function startWhatsApp() {
         null;
 
       if (!text) continue; // ignoramos audios/imágenes/stickers por ahora
+
+      cancelFollowUp(key); // la persona escribió de nuevo, cualquier seguimiento pendiente ya no aplica
 
       try {
         const paused = await isHumanActive(key);
@@ -187,6 +192,14 @@ async function startWhatsApp() {
 
         trackBotMessage(await sock.sendMessage(jid, { text: cleanReply }));
         await sock.sendPresenceUpdate('paused', jid);
+
+        // Programamos un seguimiento único por si la persona no vuelve a escribir (sección 19.7)
+        scheduleFollowUp(key, async (followUpText) => {
+          await sock.sendPresenceUpdate('composing', jid);
+          await sleep(randomDelayMs(2, 5));
+          trackBotMessage(await sock.sendMessage(jid, { text: followUpText }));
+          await sock.sendPresenceUpdate('paused', jid);
+        });
       } catch (err) {
         console.error('[WhatsApp] Error procesando mensaje:', err);
         trackBotMessage(await sock.sendMessage(jid, { text: FALLBACK_MESSAGE }));
