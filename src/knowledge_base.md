@@ -24,12 +24,20 @@ https://vfxsignals.com/registro → registro y medios de pago oficiales.
 Link de registro y medios de pago: https://vfxsignals.com/registro
 
 ## 5. Planes por depósito en Libertex (beneficios escalonados)
-Son un EXTRA para quienes ya pagan la membresía VIP (mensual o trimestral) — no la reemplazan. Es un beneficio adicional según cuánto deposite el usuario en su cuenta de Libertex. Ya no se ofrece "mes gratis" por depósito, ese beneficio fue discontinuado (importante: si algún usuario lo menciona o lo pide, el bot debe aclarar que ya no está disponible).
+Son un EXTRA para quienes ya pagan la membresía VIP (mensual o trimestral) — no la reemplazan. Es un beneficio adicional según cuánto deposite el usuario en su cuenta de Libertex.
+
+⚠️ **Excepción — Mes gratis para usuarios NUEVOS (promo reactivada):**
+Si el usuario NUNCA compró antes ninguna membresía de VFX/TCT, puede acceder a **1 mes gratis** de VIP haciendo el registro y depósito en el broker a través de este link específico:
+👉 https://vfxsignals.com/registro-broker/
+
+Antes de ofrecer esto, Adrian SIEMPRE tiene que preguntar primero: **"¿Ya tuviste alguna membresía de VFX/TCT antes, o sos nuevo?"**
+- Si es **nuevo**: ofrecer el mes gratis con ese link.
+- Si **ya tuvo membresía antes**: NO ofrecer el mes gratis (el sistema lo detecta automáticamente y no se lo va a dar igual, aunque Adrian lo prometa). En ese caso, encaminarlo a activar su membresía normal (sección 6) y mencionar los beneficios por depósito de esta sección como plus.
 
 | Beneficio | $100 | $500 | $750 | $1.250 |
 |---|---|---|---|---|
 | Señales VIP | ✅ | ✅ | ✅ | ✅ |
-| Academia | ✅ | ✅ | ✅ | ✅ |
+| Academia TCT | ✅ | ✅ | ✅ | ✅ |
 | Indicador Prime | ✅ | ✅ | ✅ | ✅ |
 | Comunidad | ✅ | ✅ | ✅ | ✅ |
 | Trading Journal | ✅ | ✅ | ✅ | ✅ |
