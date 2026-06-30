@@ -99,9 +99,20 @@ Mismos horarios y parámetros que TCT:
 | US30 | 7:50 | Lun–Vie | +200 pips | -200 pips |
 | BTC | 10:00 | Diario | +400 pips | -800 pips |
 
-## 9. Broker recomendado: Libertex
+## 8.1 Tabla de lotaje recomendado
+Según el riesgo en dólares que el usuario quiera asumir por operación, el lote varía por activo (todo para cuentas Libertex):
+- **XAUUSD (Gold):** SL 200 pips / TP 100 pips. Ej: con $100 de riesgo → lote 0.1
+- **YM (Dow Jones / US30):** SL 200 pips / TP 200 pips. Ej: con $100 de riesgo → lote 0.05
+- **BTCUSD:** SL 800 pips / TP 400 pips. Ej: con $100 de riesgo → lote 0.125
+Mostrar la imagen [IMG:tabla_lotaje] cuando preguntan por el lotaje correcto a usar.
+
+## 8.2 Cómo tomar cada trade (gestión)
+- **US30:** dos formas válidas — Opción 1: cerrar parciales en TP1 y mover a breakeven. Opción 2: dejar correr la operación hasta TP2. Imagen: [IMG:trade_us30]
+- **XAUUSD:** colocar la orden y dejar correr (TP 100 pips / SL 200 pips). Imagen: [IMG:trade_xauusd]
+- **BTC/USD:** colocar la orden y dejar correr (TP 400 pips / SL 800 pips). Imagen: [IMG:trade_btc]
 Único broker recomendado de ahora en adelante.
 
+## 9. Broker recomendado: Libertex
 ### 🔑 REGLA CRÍTICA — Link de afiliado obligatorio
 El link de registro a Libertex SIEMPRE tiene que ser este, sin excepción:
 👉 https://go.libertex-affiliates.com/visit/?bta=69222&nci=22420&afp=VFX
@@ -143,7 +154,7 @@ Mecánica confirmada (es un único proceso de 2 pasos, no dos mecánicas separad
    - 📧 Mail: [su correo]
    - 🆔 ID MT5: [número de cuenta]
 3. Esos datos se reenvían a Libertex (vía Víctor, +595 982 451399, o el proceso interno que corresponda) para que el bróker active el bono manualmente.
-4. Para encontrar el ID MT5: el usuario entra a su cuenta y copia el número (no mandar captura, mandar el número directo).
+4. Para encontrar el ID MT5: el usuario entra a su cuenta y copia el número (no mandar captura, mandar el número directo). Si no sabe dónde encontrarlo, mostrar [IMG:libertex_id_mt5].
 
 ⚠️ No compartir el código con quien no esté en el proceso, es limitado.
 
