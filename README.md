@@ -25,7 +25,28 @@ Opciones para resolver esto:
 
 Para la versión de prueba en Telegram, sugiero la opción A: que el soporte por Telegram se atienda 100% a través de este bot (vos podés ver las conversaciones igual, y si querés intervenir, usamos la opción B).
 
+## Conectar WhatsApp (Baileys — conexión no oficial)
+
+⚠️ Importante: esta conexión usa el mismo número que ya usás en tu celular (vía "Dispositivos vinculados", igual que WhatsApp Web), no la API oficial de Meta. Revisar la sección 20 de `knowledge_base.md` para las reglas anti-baneo que ya están integradas en el código (delay humano antes de responder, nunca iniciar conversación).
+
+### Pasos en Railway
+
+1. **Creá un segundo servicio** en el mismo proyecto de Railway (o uno nuevo), conectado al mismo repo de GitHub.
+2. En ese servicio, andá a **Settings → Deploy** y cambiá el **Start Command** a:
+   ```
+   npm run start:whatsapp
+   ```
+3. **Agregá un Volume** (disco persistente) a este servicio: Railway → el servicio → pestaña **Volumes** → "New Volume" → montalo en una ruta, por ejemplo `/data`.
+4. Agregá la variable de entorno `WHATSAPP_AUTH_DIR` con el valor `/data/whatsapp-auth` (para que la sesión de login se guarde en el disco persistente y no se pierda en cada redeploy).
+5. Las demás variables (`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`) son las mismas que ya tenés cargadas — copialas a este servicio nuevo también.
+6. Hacé deploy y andá a la pestaña **Console** o **Deploy Logs** del servicio: ahí va a aparecer un código QR en texto (ASCII).
+7. Desde el celular de Víctor: WhatsApp → Configuración → **Dispositivos vinculados** → "Vincular un dispositivo" → escanear ese QR.
+8. Una vez vinculado, el log va a mostrar "VFX Support Bot (WhatsApp) corriendo ✅" y el bot ya está activo en ese número.
+
+### Si hay que volver a vincular
+Si el servicio pierde la sesión (por ejemplo, si Víctor cierra la sesión desde el celular, o se borra el Volume), simplemente hay que volver a escanear un QR nuevo que va a aparecer solo en los logs.
+
 ## Próximos pasos
 - Probar el bot con preguntas reales del día a día.
 - Revisar y completar la base de conocimiento (`src/knowledge_base.md`) a medida que aparezcan casos nuevos.
-- Migrar a WhatsApp Business API cuando esté aprobada.
+- Evaluar migrar a la API oficial de Meta (o un inbox tipo Chatwoot) si el volumen crece, para bajar el riesgo de baneo y tener una bandeja prolija donde Víctor también pueda responder manual.
