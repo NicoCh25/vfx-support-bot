@@ -169,7 +169,7 @@ async function startWhatsApp() {
 
         // Regla anti-baneo: simular tiempo humano de respuesta antes de contestar (sección 20 de la base)
         await sock.sendPresenceUpdate('composing', jid);
-        await sleep(randomDelayMs(2, 6));
+        await sleep(randomDelayMs(5, 12));
 
         const reply = await generateReply(key, text);
 
