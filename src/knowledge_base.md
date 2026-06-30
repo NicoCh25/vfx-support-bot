@@ -29,7 +29,7 @@ Son un EXTRA para quienes ya pagan la membresía VIP (mensual o trimestral) — 
 | Beneficio | $100 | $500 | $750 | $1.250 |
 |---|---|---|---|---|
 | Señales VIP | ✅ | ✅ | ✅ | ✅ |
-| Academia TCT | ✅ | ✅ | ✅ | ✅ |
+| Academia | ✅ | ✅ | ✅ | ✅ |
 | Indicador Prime | ✅ | ✅ | ✅ | ✅ |
 | Comunidad | ✅ | ✅ | ✅ | ✅ |
 | Trading Journal | ✅ | ✅ | ✅ | ✅ |
