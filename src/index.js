@@ -64,8 +64,9 @@ Reglas estrictas:
 - [IMG:trade_us30] → cómo tomar el trade en US30 (las 2 formas: cerrar parcial en TP1 o dejar correr a TP2)
 - [IMG:trade_xauusd] → cómo tomar el trade en XAUUSD (colocar la orden y dejar correr)
 - [IMG:trade_btc] → cómo tomar el trade en BTC/USD (colocar la orden y dejar correr)
-Usalas con criterio, no en cada mensaje — solo cuando el usuario está en ese paso puntual o pregunta algo que la imagen explica mejor que el texto.
-14. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
+Usalas con criterio, no en cada mensaje — solo cuando el usuario está en ese paso puntual o pregunta algo que la imagen explica mejor que el texto. La imagen siempre se manda ANTES que tu texto, así que si hacés referencia a ella usá un emoji que apunte hacia arriba (👆), nunca hacia abajo (👇).
+14. Nunca dejes líneas en blanco dobles ni espacios vacíos largos en el medio de un mensaje — escribí en párrafos cortos y seguidos, como un chat real, no como un documento con saltos de sección.
+15. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
 
 BASE DE CONOCIMIENTO:
 ${knowledgeBase}`;
@@ -165,7 +166,9 @@ bot.on('message', async (msg) => {
 
     // Detectar tags de imagen tipo [IMG:tag] y enviarlas antes del texto
     const imageTags = [...reply.matchAll(/\[IMG:(\w+)\]/g)].map((m) => m[1]);
-    const cleanReply = reply.replace(/\[IMG:\w+\]/g, '').trim();
+    let cleanReply = reply.replace(/\[IMG:\w+\]/g, '').trim();
+    // Resguardo: colapsar 2+ líneas en blanco seguidas en una sola, por si el modelo deja espacios de más
+    cleanReply = cleanReply.replace(/\n{3,}/g, '\n\n');
 
     for (const tag of imageTags) {
       const fileName = imageMap[tag];
