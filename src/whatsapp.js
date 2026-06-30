@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import QRCode from 'qrcode';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {
   imageMap,
@@ -19,6 +19,8 @@ import {
   sleep,
   scheduleFollowUp,
   cancelFollowUp,
+  transcribeAudio,
+  analyzeImage,
 } from './core.js';
 
 // Carpeta donde se guarda la sesión de WhatsApp (login). DEBE vivir en un Volume persistente
@@ -156,7 +158,13 @@ async function startWhatsApp() {
         msg.message.extendedTextMessage?.text ||
         null;
 
-      if (!text) continue; // ignoramos audios/imágenes/stickers por ahora
+      // --- Audio (nota de voz) ---
+      const audioMsg = msg.message.audioMessage || msg.message.pttMessage;
+      // --- Imagen ---
+      const imageMsg = msg.message.imageMessage;
+
+      // Si no hay ningún tipo de contenido soportado, ignoramos
+      if (!text && !audioMsg && !imageMsg) continue;
 
       cancelFollowUp(key); // la persona escribió de nuevo, cualquier seguimiento pendiente ya no aplica
 
@@ -167,13 +175,38 @@ async function startWhatsApp() {
           continue;
         }
 
-        // Regla anti-baneo: simular tiempo humano de respuesta antes de contestar (sección 20 de la base)
         await sock.sendPresenceUpdate('composing', jid);
         await sleep(randomDelayMs(5, 12));
 
-        const reply = await generateReply(key, text);
+        let reply = null;
 
-        pushToHistory(key, 'user', text);
+        if (audioMsg) {
+          // Descargamos y transcribimos el audio
+          console.log(`[WhatsApp] Audio recibido de ${jid}, transcribiendo...`);
+          const audioBuffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+          const transcription = await transcribeAudio(audioBuffer, audioMsg.mimetype || 'audio/ogg');
+          if (transcription) {
+            console.log(`[WhatsApp] Transcripción: "${transcription}"`);
+            reply = await generateReply(key, `[Audio transcripto]: ${transcription}`);
+            pushToHistory(key, 'user', `[Audio transcripto]: ${transcription}`);
+          } else {
+            reply = 'Perdón, no pude escuchar bien el audio. ¿Me lo podés escribir?';
+            pushToHistory(key, 'user', '[Audio no transcripto]');
+          }
+        } else if (imageMsg) {
+          // Descargamos y analizamos la imagen con Claude Vision
+          console.log(`[WhatsApp] Imagen recibida de ${jid}, analizando...`);
+          const imageBuffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+          const caption = imageMsg.caption || '';
+          reply = await analyzeImage(imageBuffer, imageMsg.mimetype || 'image/jpeg', caption);
+          pushToHistory(key, 'user', caption ? `[Imagen con texto: "${caption}"]` : '[Imagen sin texto]');
+          if (!reply) reply = 'Vi la imagen, pero no pude procesarla bien. ¿Me explicás qué necesitás?';
+        } else {
+          // Texto normal
+          reply = await generateReply(key, text);
+          pushToHistory(key, 'user', text);
+        }
+
         pushToHistory(key, 'assistant', reply);
 
         if (reply.includes('EN_BREVE_ASESOR')) {
