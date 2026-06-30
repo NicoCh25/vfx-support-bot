@@ -12,6 +12,7 @@ import {
   pushToHistory,
   isHumanActive,
   markUrgent,
+  markHumanReply,
   generateReply,
   extractImagesAndCleanText,
   randomDelayMs,
@@ -59,6 +60,15 @@ server.listen(PORT, () => {
 
 function chatKey(jid) {
   return `wa:${jid}`; // prefijo para no mezclar con chats de Telegram en Supabase/historial
+}
+
+// IDs de los mensajes que el BOT mismo envió. Sirve para distinguir, entre los mensajes "fromMe"
+// que llegan por messages.upsert, cuáles los mandó el bot y cuáles los escribió Víctor a mano
+// desde su celular real (mismo número, por eso ambos aparecen como "fromMe" en WhatsApp/Baileys).
+const botSentMessageIds = new Set();
+function trackBotMessage(sendResult) {
+  const id = sendResult?.key?.id;
+  if (id) botSentMessageIds.add(id);
 }
 
 async function startWhatsApp() {
@@ -110,10 +120,24 @@ async function startWhatsApp() {
     if (type !== 'notify') return;
 
     for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue; // ignoramos mensajes propios y vacíos
+      if (!msg.message) continue;
 
       const jid = msg.key.remoteJid;
       if (!jid || jid.endsWith('@g.us')) continue; // ignoramos grupos, solo chats 1 a 1
+
+      const key = chatKey(jid);
+
+      // Si el mensaje es "fromMe" (mismo número), puede ser del bot o de Víctor escribiendo a mano.
+      if (msg.key.fromMe) {
+        if (botSentMessageIds.has(msg.key.id)) {
+          botSentMessageIds.delete(msg.key.id); // ya lo identificamos, limpiamos memoria
+        } else {
+          // Es Víctor respondiendo manualmente desde su celular: pausamos el bot 24hs en este chat.
+          console.log(`[WhatsApp] Víctor respondió manualmente en ${jid}. Pausando el bot 24hs ahí.`);
+          await markHumanReply(key);
+        }
+        continue; // nunca generamos respuesta a un mensaje que salió de este mismo número
+      }
 
       const text =
         msg.message.conversation ||
@@ -121,8 +145,6 @@ async function startWhatsApp() {
         null;
 
       if (!text) continue; // ignoramos audios/imágenes/stickers por ahora
-
-      const key = chatKey(jid);
 
       try {
         const paused = await isHumanActive(key);
@@ -141,7 +163,7 @@ async function startWhatsApp() {
         pushToHistory(key, 'assistant', reply);
 
         if (reply.includes('EN_BREVE_ASESOR')) {
-          await sock.sendMessage(jid, { text: FALLBACK_MESSAGE });
+          trackBotMessage(await sock.sendMessage(jid, { text: FALLBACK_MESSAGE }));
           await markUrgent(key, text);
           continue;
         }
@@ -154,7 +176,7 @@ async function startWhatsApp() {
           const filePath = path.join(IMAGES_DIR, fileName);
           if (fs.existsSync(filePath)) {
             try {
-              await sock.sendMessage(jid, { image: fs.readFileSync(filePath) });
+              trackBotMessage(await sock.sendMessage(jid, { image: fs.readFileSync(filePath) }));
             } catch (imgErr) {
               console.error(`[WhatsApp] Error enviando imagen "${tag}":`, imgErr.message);
             }
@@ -163,11 +185,11 @@ async function startWhatsApp() {
           }
         }
 
-        await sock.sendMessage(jid, { text: cleanReply });
+        trackBotMessage(await sock.sendMessage(jid, { text: cleanReply }));
         await sock.sendPresenceUpdate('paused', jid);
       } catch (err) {
         console.error('[WhatsApp] Error procesando mensaje:', err);
-        await sock.sendMessage(jid, { text: FALLBACK_MESSAGE });
+        trackBotMessage(await sock.sendMessage(jid, { text: FALLBACK_MESSAGE }));
         await markUrgent(key, text);
       }
     }
