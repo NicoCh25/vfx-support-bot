@@ -2,7 +2,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import qrcodeTerminal from 'qrcode-terminal';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {
   imageMap,
@@ -28,11 +28,15 @@ function chatKey(jid) {
 
 async function startWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`[WhatsApp] Usando versión de protocolo: ${version.join('.')}`);
 
   const sock = makeWASocket({
     auth: state,
+    version,
     logger: pino({ level: 'silent' }), // bajamos el ruido de logs de Baileys; cambiar a 'info' para debug
     printQRInTerminal: false, // lo manejamos manualmente abajo para loguearlo más claro
+    browser: ['VFX Signals Bot', 'Chrome', '1.0.0'],
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -49,8 +53,11 @@ async function startWhatsApp() {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log('[WhatsApp] Conexión cerrada.', statusCode, '¿Reconectar?', shouldReconnect);
-      if (shouldReconnect) startWhatsApp();
-      else console.log('[WhatsApp] Sesión cerrada (logout). Hay que volver a escanear el QR.');
+      if (shouldReconnect) {
+        setTimeout(() => startWhatsApp(), 5000); // esperamos 5s antes de reintentar
+      } else {
+        console.log('[WhatsApp] Sesión cerrada (logout). Hay que volver a escanear el QR.');
+      }
     } else if (connection === 'open') {
       console.log('VFX Support Bot (WhatsApp) corriendo ✅');
     }
