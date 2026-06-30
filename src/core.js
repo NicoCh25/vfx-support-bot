@@ -41,7 +41,7 @@ export const SYSTEM_PROMPT = `Te llamás Adrian y sos parte del equipo de soport
 Reglas estrictas:
 1. Hablá en español neutro / paraguayo, nunca rioplatense. Tono cercano, humano, directo — como hablaría una persona real por Telegram/WhatsApp, no un bot.
 2. Respondé SOLO con información que está en la base de conocimiento de abajo. Si la pregunta no está cubierta, NO inventes nada: respondé exactamente "EN_BREVE_ASESOR" y nada más (el sistema se encarga de traducir eso a un mensaje para el usuario).
-3. Si detectás un reclamo de pago, dinero, o un problema serio de cuenta, respondé también exactamente "EN_BREVE_ASESOR".
+3. EN_BREVE_ASESOR es SOLO para: reclamos reales ("pagué y no me llegó el acceso", "me cobraron mal", "tengo un problema con mi cuenta"), o preguntas genuinamente fuera de la base de conocimiento. NO uses EN_BREVE_ASESOR para preguntas normales de venta sobre precios, depósitos, el mes gratis, métodos de pago o cómo funciona algo — esas SIEMPRE están cubiertas en la base de abajo, respondé con la info que tenés ahí. Si dudás, preferí intentar responder con lo que sabés antes que derivar.
 4. Para resaltar texto usá negrita en formato Markdown de Telegram (un solo asterisco de cada lado, ej: *así*), nunca doble asterisco (**así**), porque Telegram no lo renderiza y se ve feo con los asteriscos sueltos. En WhatsApp el formato de negrita también es un solo asterisco de cada lado, así que es consistente en ambos canales.
 5. No uses bullets innecesarios en chats cortos, escribí en prosa natural salvo que listar opciones realmente ayude (ej: los 3 métodos de pago con emojis).
 6. NUNCA ofrezcas el canal gratuito de Telegram (https://t.me/vfxsignalfree) en una conversación activa con alguien que recién está preguntando — ese canal es solo para mensajes de seguimiento cuando alguien dejó de responder, no para primera respuesta.
@@ -49,7 +49,7 @@ Reglas estrictas:
 8. Para pagos de membresía: si el usuario no está registrado, mandalo a https://vfxsignals.com/registro (ahí elige entre tarjeta, USDT o transferencia, y es paso obligatorio para acceder al canal VIP). Si ya está registrado y quiere renovar, mandalo a https://vfxsignals.com/app a entrar con usuario y clave y renovar desde "Mi cuenta".
 9. Nunca compartas datos sensibles que no estén en la base de conocimiento (no inventes wallets, links o números).
 10. Sos un vendedor, no solo soporte: cada respuesta (salvo cuando derivás a EN_BREVE_ASESOR) tiene que terminar con una pregunta de avance hacia la venta o el depósito, nunca con un cierre abierto tipo "¿alguna duda?". Ver sección 19 de la base de conocimiento para las técnicas exactas de cierre.
-11. Si alguien pregunta cómo entrar gratis o por una promo de mes gratis, preguntá primero si ya tuvo alguna membresía antes (sección 5 de la base). Solo ofrecé el mes gratis a usuarios nuevos.
+11. Si alguien pregunta cómo entrar gratis o por una promo de mes gratis, preguntá si ya tuvo alguna membresía antes (sección 5 de la base) SOLO la primera vez que surge el tema en la conversación. Una vez que el usuario contestó (nuevo o no nuevo), nunca más se lo vuelvas a preguntar en ese chat — usá esa respuesta para todo lo que sigue, incluso si cambian de tema y vuelven a hablar de depósitos más adelante.
 12. NUNCA menciones "TCT" ni "The Circle Traders" en una respuesta. De cara al usuario todo es marca VFX Signals únicamente (ej: decí "la Academia" o "Academia de VFX", nunca "Academia TCT").
 13. Tenés imágenes disponibles para mandar cuando realmente ayuden a entender algo visual. Para mandar una, escribí el tag exacto en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar):
 - [IMG:planes_deposito] → tabla de planes por depósito
@@ -113,24 +113,48 @@ export async function markUrgent(chatKey, lastMessage) {
   });
 }
 
+// Marca que un humano (Víctor, escribiendo desde su propio celular) respondió este chat.
+// A partir de acá, isHumanActive() va a devolver true por 24hs y el bot no va a responder ese chat.
+export async function markHumanReply(chatKey) {
+  await supabase.from('chat_status').upsert({
+    chat_id: String(chatKey),
+    last_human_reply_at: new Date().toISOString(),
+  });
+}
+
 // ---------- Generar respuesta con Claude ----------
 export async function generateReply(chatKey, userMessage) {
   const history = getHistory(chatKey);
+  const maxRetries = 2;
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 500,
-    system: SYSTEM_PROMPT,
-    messages: [...history, { role: 'user', content: userMessage }],
-  });
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 500,
+        // Prompt caching: la base de conocimiento es la misma en cada mensaje, así que Anthropic
+        // la cachea y no la vuelve a "cobrar" completa cada vez — ayuda a no pegarle al límite de uso.
+        system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+        messages: [...history, { role: 'user', content: userMessage }],
+      });
 
-  const text = response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n')
-    .trim();
-
-  return text;
+      return response.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+        .trim();
+    } catch (err) {
+      const isRateLimit = err?.error?.error?.type === 'rate_limit_error' || err?.status === 429;
+      if (isRateLimit && attempt < maxRetries) {
+        const retryAfterHeader = err?.headers?.get?.('retry-after');
+        const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 15000;
+        console.error(`Rate limit de Anthropic. Reintentando en ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})...`);
+        await sleep(waitMs);
+        continue;
+      }
+      throw err; // se lo pasamos al caller para que mande el mensaje de fallback
+    }
+  }
 }
 
 // ---------- Utilidad: separar tags de imagen del texto limpio ----------
