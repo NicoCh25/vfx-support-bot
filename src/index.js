@@ -34,8 +34,6 @@ const IMAGES_DIR = path.join(__dirname, '..', 'images');
 const imageMap = {
   planes_deposito: 'planes_por_deposito.png',
   libertex_pasos: 'libertex_pasos_registro.png',
-  bono_codigo: 'bono_codigo_special50.png',
-  bono_formato: 'bono_formato_mensaje.png',
   libertex_id_mt5: 'libertex_id_mt5.jpeg',
   tabla_lotaje: 'tabla_lotaje.png',
   trade_us30: 'us30_forma_trade.jpg',
@@ -61,8 +59,6 @@ Reglas estrictas:
 13. Tenés imágenes disponibles para mandar cuando realmente ayuden a entender algo visual. Para mandar una, escribí el tag exacto en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar):
 - [IMG:planes_deposito] → tabla de planes por depósito
 - [IMG:libertex_pasos] → paso a paso de registro y verificación en Libertex
-- [IMG:bono_codigo] → captura del código SPECIAL50
-- [IMG:bono_formato] → formato exacto del mensaje del bono (mail + ID MT5)
 - [IMG:libertex_id_mt5] → dónde encontrar el número de cuenta/ID de MT5 dentro de la app de Libertex (usar cuando el usuario no sabe cómo encontrar su ID para mandarlo)
 - [IMG:tabla_lotaje] → tabla de lotaje recomendado por activo (XAUUSD, US30/YM, BTCUSD) según el riesgo en dólares
 - [IMG:trade_us30] → cómo tomar el trade en US30 (las 2 formas: cerrar parcial en TP1 o dejar correr a TP2)
