@@ -27,6 +27,17 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 // ---------- Base de conocimiento ----------
 const knowledgeBase = fs.readFileSync(path.join(__dirname, 'knowledge_base.md'), 'utf-8');
 
+// ---------- Imágenes disponibles ----------
+// Adrian puede pedir que se envíe una imagen escribiendo [IMG:tag] en su respuesta.
+// El código detecta el tag, manda la foto, y lo quita del texto antes de enviar el mensaje.
+const IMAGES_DIR = path.join(__dirname, '..', 'images');
+const imageMap = {
+  planes_deposito: 'planes_por_deposito.png',
+  libertex_pasos: 'libertex_pasos_registro.png',
+  bono_codigo: 'bono_codigo_special50.png',
+  bono_formato: 'bono_formato_mensaje.png',
+};
+
 const SYSTEM_PROMPT = `Te llamás Adrian y sos parte del equipo de soporte de VFX Signals, una comunidad de señales de trading VIP (XAUUSD, US30, BTC) enfocada en Paraguay. Hablás como una persona real, nunca decís que sos una IA ni sonás robótico.
 
 Reglas estrictas:
@@ -42,11 +53,30 @@ Reglas estrictas:
 10. Sos un vendedor, no solo soporte: cada respuesta (salvo cuando derivás a EN_BREVE_ASESOR) tiene que terminar con una pregunta de avance hacia la venta o el depósito, nunca con un cierre abierto tipo "¿alguna duda?". Ver sección 19 de la base de conocimiento para las técnicas exactas de cierre.
 11. Si alguien pregunta cómo entrar gratis o por una promo de mes gratis, preguntá primero si ya tuvo alguna membresía antes (sección 5 de la base). Solo ofrecé el mes gratis a usuarios nuevos.
 12. NUNCA menciones "TCT" ni "The Circle Traders" en una respuesta. De cara al usuario todo es marca VFX Signals únicamente (ej: decí "la Academia" o "Academia de VFX", nunca "Academia TCT").
+13. Tenés imágenes disponibles para mandar cuando realmente ayuden a entender algo visual. Para mandar una, escribí el tag exacto en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar): [IMG:planes_deposito] para la tabla de planes por depósito, [IMG:libertex_pasos] para el paso a paso de registro y verificación en Libertex, [IMG:bono_codigo] para la captura del código SPECIAL50, [IMG:bono_formato] para el formato exacto del mensaje del bono (mail + ID MT5). Usalas con criterio, no en cada mensaje — solo cuando el usuario está en ese paso puntual y la imagen le ahorra confusión.
+14. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
 
 BASE DE CONOCIMIENTO:
 ${knowledgeBase}`;
 
 const FALLBACK_MESSAGE = 'En breve te responde un asesor 🙌';
+const MAX_HISTORY_MESSAGES = 12; // mantiene las últimas 6 idas y vueltas por chat
+
+// ---------- Memoria de conversación (en memoria, por chat) ----------
+// Nota: esto vive en RAM. Si Railway reinicia el servicio, se pierde el historial activo,
+// pero la regla de pausa de 24hs y los chats urgentes siguen guardados en Supabase.
+const conversationHistory = new Map(); // chatId -> [{role, content}, ...]
+
+function getHistory(chatId) {
+  return conversationHistory.get(chatId) || [];
+}
+
+function pushToHistory(chatId, role, content) {
+  const history = getHistory(chatId);
+  history.push({ role, content });
+  while (history.length > MAX_HISTORY_MESSAGES) history.shift();
+  conversationHistory.set(chatId, history);
+}
 
 // ---------- Regla de pausa de 24hs ----------
 async function isHumanActive(chatId) {
@@ -76,12 +106,14 @@ async function markUrgent(chatId, lastMessage) {
 }
 
 // ---------- Generar respuesta con Claude ----------
-async function generateReply(userMessage) {
+async function generateReply(chatId, userMessage) {
+  const history = getHistory(chatId);
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 500,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [...history, { role: 'user', content: userMessage }],
   });
 
   const text = response.content
@@ -107,7 +139,12 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    const reply = await generateReply(text);
+    const reply = await generateReply(chatId, text);
+
+    // Guardamos el turno en el historial (con el texto crudo del modelo, incluyendo tags de imagen,
+    // así Claude recuerda exactamente qué dijo y no se contradice ni repite preguntas ya respondidas)
+    pushToHistory(chatId, 'user', text);
+    pushToHistory(chatId, 'assistant', reply);
 
     if (reply.includes('EN_BREVE_ASESOR')) {
       await bot.sendMessage(chatId, FALLBACK_MESSAGE);
@@ -115,12 +152,31 @@ bot.on('message', async (msg) => {
       return;
     }
 
+    // Detectar tags de imagen tipo [IMG:tag] y enviarlas antes del texto
+    const imageTags = [...reply.matchAll(/\[IMG:(\w+)\]/g)].map((m) => m[1]);
+    const cleanReply = reply.replace(/\[IMG:\w+\]/g, '').trim();
+
+    for (const tag of imageTags) {
+      const fileName = imageMap[tag];
+      if (!fileName) continue;
+      const filePath = path.join(IMAGES_DIR, fileName);
+      if (fs.existsSync(filePath)) {
+        try {
+          await bot.sendPhoto(chatId, fs.createReadStream(filePath));
+        } catch (imgErr) {
+          console.error(`Error enviando imagen "${tag}":`, imgErr.message);
+        }
+      } else {
+        console.error(`Imagen no encontrada para el tag "${tag}": ${filePath}`);
+      }
+    }
+
     try {
-      await bot.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
+      await bot.sendMessage(chatId, cleanReply, { parse_mode: 'Markdown' });
     } catch (sendErr) {
       // Si el formato Markdown rompe el envío (caracteres especiales), reintenta en texto plano
       console.error('Fallo el envío con Markdown, reintentando en texto plano:', sendErr.message);
-      await bot.sendMessage(chatId, reply.replace(/\*/g, ''));
+      await bot.sendMessage(chatId, cleanReply.replace(/\*/g, ''));
     }
   } catch (err) {
     console.error('Error procesando mensaje:', err);
