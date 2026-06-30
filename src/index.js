@@ -12,6 +12,8 @@ import {
   markUrgent,
   generateReply,
   extractImagesAndCleanText,
+  randomDelayMs,
+  sleep,
 } from './core.js';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -39,6 +41,10 @@ bot.on('message', async (msg) => {
       console.log(`[Telegram] Chat ${chatId} pausado (respuesta humana reciente). No responde el bot.`);
       return;
     }
+
+    // Simular que "está escribiendo" antes de responder
+    await bot.sendChatAction(chatId, 'typing');
+    await sleep(randomDelayMs(5, 12));
 
     const reply = await generateReply(key, text);
 
