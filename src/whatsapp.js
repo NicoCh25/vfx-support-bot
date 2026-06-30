@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import qrcodeTerminal from 'qrcode-terminal';
+import http from 'http';
+import QRCode from 'qrcode';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {
@@ -22,6 +23,40 @@ import {
 const AUTH_DIR = process.env.WHATSAPP_AUTH_DIR || path.join(process.cwd(), 'whatsapp-auth');
 if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
+const PORT = process.env.PORT || 3000;
+
+// ---------- Servidor web: muestra el QR como imagen para escanear fácil desde el celular ----------
+let latestQrDataUrl = null;
+let connectionStatus = 'Iniciando...';
+
+const server = http.createServer(async (req, res) => {
+  if (req.url === '/qr') {
+    if (!latestQrDataUrl) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;"><h2>${connectionStatus}</h2><p>Si ya estaba conectado, no hace falta escanear nada. Si esperabas un QR, refrescá esta página en unos segundos.</p></body></html>`);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <html>
+        <body style="font-family:sans-serif;text-align:center;padding-top:30px;">
+          <h2>Escaneá este QR desde WhatsApp</h2>
+          <p>Configuración → Dispositivos vinculados → Vincular un dispositivo</p>
+          <img src="${latestQrDataUrl}" style="width:300px;height:300px;" />
+          <p style="color:#888;">Esta página se actualiza sola si el QR vence — refrescá si pasaron más de 30 segundos.</p>
+        </body>
+      </html>
+    `);
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(`Estado: ${connectionStatus}. Visitá /qr para ver el código QR.`);
+});
+
+server.listen(PORT, () => {
+  console.log(`[WhatsApp] Servidor web corriendo en el puerto ${PORT}. Visitá /qr en el dominio público de este servicio para escanear.`);
+});
+
 function chatKey(jid) {
   return `wa:${jid}`; // prefijo para no mezclar con chats de Telegram en Supabase/historial
 }
@@ -41,18 +76,24 @@ async function startWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', (update) => {
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('📱 Escaneá este QR desde WhatsApp (Dispositivos vinculados) para conectar el bot:');
-      qrcodeTerminal.generate(qr, { small: true });
+      console.log('📱 Nuevo QR generado. Andá a la URL pública del servicio + /qr para escanearlo.');
+      connectionStatus = 'Esperando que escanees el QR';
+      try {
+        latestQrDataUrl = await QRCode.toDataURL(qr, { width: 400 });
+      } catch (qrErr) {
+        console.error('[WhatsApp] Error generando imagen del QR:', qrErr.message);
+      }
     }
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log('[WhatsApp] Conexión cerrada.', statusCode, '¿Reconectar?', shouldReconnect);
+      connectionStatus = `Conexión cerrada (${statusCode}). ${shouldReconnect ? 'Reintentando...' : 'Hay que volver a escanear el QR.'}`;
       if (shouldReconnect) {
         setTimeout(() => startWhatsApp(), 5000); // esperamos 5s antes de reintentar
       } else {
@@ -60,6 +101,8 @@ async function startWhatsApp() {
       }
     } else if (connection === 'open') {
       console.log('VFX Support Bot (WhatsApp) corriendo ✅');
+      connectionStatus = '✅ Conectado y funcionando. No hace falta escanear nada.';
+      latestQrDataUrl = null;
     }
   });
 
