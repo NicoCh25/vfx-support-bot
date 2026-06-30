@@ -1,0 +1,16 @@
+{
+  "name": "vfx-support-bot",
+  "version": "1.0.0",
+  "description": "Bot de soporte con IA para VFX Signals",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "node-telegram-bot-api": "^0.66.0",
+    "dotenv": "^16.4.5"
+  }
+}
