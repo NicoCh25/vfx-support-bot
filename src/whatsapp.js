@@ -158,15 +158,12 @@ async function startWhatsApp() {
         msg.message.extendedTextMessage?.text ||
         null;
 
-      // --- Audio (nota de voz) ---
-      const audioMsg = msg.message.audioMessage || msg.message.pttMessage;
-      // --- Imagen ---
       const imageMsg = msg.message.imageMessage;
+      const audioMsg = msg.message.audioMessage || msg.message.pttMessage;
 
-      // Si no hay ningún tipo de contenido soportado, ignoramos
-      if (!text && !audioMsg && !imageMsg) continue;
+      if (!text && !imageMsg && !audioMsg) continue;
 
-      cancelFollowUp(key); // la persona escribió de nuevo, cualquier seguimiento pendiente ya no aplica
+      cancelFollowUp(key);
 
       try {
         const paused = await isHumanActive(key);
@@ -178,42 +175,21 @@ async function startWhatsApp() {
         await sock.sendPresenceUpdate('composing', jid);
         await sleep(randomDelayMs(5, 12));
 
-        let reply = null;
+        let messageForAI = text;
 
-        if (audioMsg) {
-          // Descargamos y transcribimos el audio
-          console.log(`[WhatsApp] Audio recibido de ${jid}, transcribiendo...`);
-          const audioBuffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
-          const transcription = await transcribeAudio(audioBuffer, audioMsg.mimetype || 'audio/ogg');
-          if (transcription) {
-            console.log(`[WhatsApp] Transcripción: "${transcription}"`);
-            reply = await generateReply(key, `[Audio transcripto]: ${transcription}`);
-            pushToHistory(key, 'user', `[Audio transcripto]: ${transcription}`);
-          } else {
-            reply = 'Perdón, no pude escuchar bien el audio. ¿Me lo podés escribir?';
-            pushToHistory(key, 'user', '[Audio no transcripto]');
-          }
-        } else if (imageMsg) {
-          // Descargamos y analizamos la imagen con Claude Vision
-          console.log(`[WhatsApp] Imagen recibida de ${jid}, analizando...`);
-          const imageBuffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+        if (imageMsg && !text) {
           const caption = imageMsg.caption || '';
-          reply = await analyzeImage(imageBuffer, imageMsg.mimetype || 'image/jpeg', caption);
-          pushToHistory(key, 'user', caption ? `[Imagen con texto: "${caption}"]` : '[Imagen sin texto]');
-          if (!reply) {
-            // Si no pudimos analizar la imagen, hacemos una pregunta de contexto natural
-            // (no decimos "no pude procesarla" — eso delata que es un bot)
-            reply = await generateReply(key, caption
-              ? `El usuario mandó una imagen y escribió: "${caption}". No pude ver la imagen claramente. Hacele una pregunta natural y breve para entender en qué parte del proceso está (si es comprobante de depósito, captura de error, etc.) sin revelar que no pudiste ver la imagen.`
-              : 'El usuario mandó una imagen sin texto. Hacele una pregunta natural y breve para entender en qué parte del proceso está (si es comprobante de depósito, captura de error, etc.) sin revelar que sos un bot ni que no pudiste ver la imagen.');
-            pushToHistory(key, 'user', caption ? `[Imagen: "${caption}"]` : '[Imagen]');
-          }
-        } else {
-          // Texto normal
-          reply = await generateReply(key, text);
-          pushToHistory(key, 'user', text);
+          // No descargamos la imagen — le pedimos a Claude que responda de forma natural
+          // como si fuera una persona que recibió una foto y quiere entender el contexto
+          messageForAI = caption
+            ? `El usuario mandó una imagen con este texto: "${caption}". Respondé de forma natural y breve, como si fueras una persona real que recibió la foto. Preguntale qué necesita o en qué parte del proceso está, sin revelar que sos un bot ni que no podés ver la imagen.`
+            : `El usuario mandó una imagen sin texto. Respondé de forma natural y breve, como si fueras una persona real que recibió la foto y quiere saber de qué se trata. Ejemplo: "Joya, la veo 👌 ¿Es el comprobante del depósito?" o "Dale, ¿qué me estás mostrando?" — elegí el tono según el contexto de la conversación.`;
+        } else if (audioMsg && !text) {
+          messageForAI = 'El usuario mandó un audio. Respondé de forma natural como si fuera una persona real: pedile que te escriba lo que necesita porque en este momento no podés escuchar audios, pero de forma amigable y sin sonar a bot. Ej: "Bro, estoy en modo texto ahora 😅 ¿Me escribís lo que necesitás?"';
         }
 
+        const reply = await generateReply(key, messageForAI);
+        pushToHistory(key, 'user', text || (imageMsg ? '[imagen]' : '[audio]'));
         pushToHistory(key, 'assistant', reply);
 
         if (reply.includes('EN_BREVE_ASESOR')) {
