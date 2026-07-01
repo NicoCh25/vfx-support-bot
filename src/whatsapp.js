@@ -136,7 +136,7 @@ async function startWhatsApp() {
       if (!msg.message) continue;
 
       const jid = msg.key.remoteJid;
-      if (!jid || jid.endsWith('@g.us')) continue; // ignoramos grupos, solo chats 1 a 1
+      if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // ignoramos grupos y estados de WA
 
       const key = chatKey(jid);
 
