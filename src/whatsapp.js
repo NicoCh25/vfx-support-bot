@@ -200,7 +200,14 @@ async function startWhatsApp() {
           const caption = imageMsg.caption || '';
           reply = await analyzeImage(imageBuffer, imageMsg.mimetype || 'image/jpeg', caption);
           pushToHistory(key, 'user', caption ? `[Imagen con texto: "${caption}"]` : '[Imagen sin texto]');
-          if (!reply) reply = 'Vi la imagen, pero no pude procesarla bien. ¿Me explicás qué necesitás?';
+          if (!reply) {
+            // Si no pudimos analizar la imagen, hacemos una pregunta de contexto natural
+            // (no decimos "no pude procesarla" — eso delata que es un bot)
+            reply = await generateReply(key, caption
+              ? `El usuario mandó una imagen y escribió: "${caption}". No pude ver la imagen claramente. Hacele una pregunta natural y breve para entender en qué parte del proceso está (si es comprobante de depósito, captura de error, etc.) sin revelar que no pudiste ver la imagen.`
+              : 'El usuario mandó una imagen sin texto. Hacele una pregunta natural y breve para entender en qué parte del proceso está (si es comprobante de depósito, captura de error, etc.) sin revelar que sos un bot ni que no pudiste ver la imagen.');
+            pushToHistory(key, 'user', caption ? `[Imagen: "${caption}"]` : '[Imagen]');
+          }
         } else {
           // Texto normal
           reply = await generateReply(key, text);
