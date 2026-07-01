@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import QRCode from 'qrcode';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {
   imageMap,
@@ -15,12 +15,16 @@ import {
   markHumanReply,
   generateReply,
   extractImagesAndCleanText,
+  extractVipLinkRequest,
+  splitIntoMessageChunks,
+  extractEmail,
+  checkClienteStatus,
+  buildClienteStatusContext,
+  generateVipLink,
   randomDelayMs,
   sleep,
   scheduleFollowUp,
   cancelFollowUp,
-  transcribeAudio,
-  analyzeImage,
 } from './core.js';
 
 // Carpeta donde se guarda la sesión de WhatsApp (login). DEBE vivir en un Volume persistente
@@ -32,11 +36,13 @@ const PORT = process.env.PORT || 3000;
 
 // Resguardo: errores de sesión/cifrado de Baileys (común tras reconexiones forzadas) no deberían
 // tirar abajo todo el proceso. Los logueamos y seguimos andando.
+// OJO: nunca dejar que el fallback caiga en imprimir "err" completo — algunos errores de Baileys
+// llevan la sesión criptográfica pegada adentro. Siempre logueamos solo el mensaje de texto.
 process.on('unhandledRejection', (err) => {
-  console.error('[WhatsApp] unhandledRejection (no debería crashear el proceso):', err?.message || err);
+  console.error('[WhatsApp] unhandledRejection (no debería crashear el proceso):', err?.message || 'Error desconocido');
 });
 process.on('uncaughtException', (err) => {
-  console.error('[WhatsApp] uncaughtException (no debería crashear el proceso):', err?.message || err);
+  console.error('[WhatsApp] uncaughtException (no debería crashear el proceso):', err?.message || 'Error desconocido');
 });
 
 // ---------- Servidor web: muestra el QR como imagen para escanear fácil desde el celular ----------
@@ -188,6 +194,15 @@ async function startWhatsApp() {
           messageForAI = 'El usuario mandó un audio. Respondé de forma natural como si fuera una persona real: pedile que te escriba lo que necesita porque en este momento no podés escuchar audios, pero de forma amigable y sin sonar a bot. Ej: "Bro, estoy en modo texto ahora 😅 ¿Me escribís lo que necesitás?"';
         }
 
+        // Si el usuario mandó un mail, consultamos su estado real en la plataforma VFX
+        // y se lo pasamos a Claude como contexto verificado (ver regla 17 del prompt).
+        const detectedEmail = extractEmail(text);
+        if (detectedEmail) {
+          const status = await checkClienteStatus(detectedEmail);
+          const context = buildClienteStatusContext(status);
+          if (context) messageForAI = `${context}\n\n${messageForAI}`;
+        }
+
         const reply = await generateReply(key, messageForAI);
         pushToHistory(key, 'user', text || (imageMsg ? '[imagen]' : '[audio]'));
         pushToHistory(key, 'assistant', reply);
@@ -198,7 +213,8 @@ async function startWhatsApp() {
           continue;
         }
 
-        const { imageTags, cleanReply } = extractImagesAndCleanText(reply);
+        const { imageTags, cleanReply: replyWithoutImages } = extractImagesAndCleanText(reply);
+        const { wantsVipLink, cleanReply } = extractVipLinkRequest(replyWithoutImages);
 
         for (const tag of imageTags) {
           const fileName = imageMap[tag];
@@ -215,7 +231,34 @@ async function startWhatsApp() {
           }
         }
 
-        trackBotMessage(await sock.sendMessage(jid, { text: cleanReply }));
+        // Mandamos la respuesta partida en varios mensajes (uno por párrafo), simulando que
+        // Adrian está escribiendo y mandando de a poco, como una persona real en el chat.
+        const messageChunks = splitIntoMessageChunks(cleanReply);
+        for (let i = 0; i < messageChunks.length; i++) {
+          if (i > 0) {
+            await sock.sendPresenceUpdate('composing', jid);
+            await sleep(randomDelayMs(1, 3)); // pausa corta entre mensaje y mensaje
+          }
+          trackBotMessage(await sock.sendMessage(jid, { text: messageChunks[i] }));
+        }
+
+        // Si Adrian pidió el link VIP (usuario con membresía activa que no le abre el grupo),
+        // lo generamos y lo mandamos como mensaje aparte, justo después del texto.
+        if (wantsVipLink && detectedEmail) {
+          const vip = await generateVipLink(detectedEmail);
+          if (vip?.invite_link) {
+            await sleep(randomDelayMs(1, 3));
+            trackBotMessage(await sock.sendMessage(jid, {
+              text: `🚀 Acá tenés el acceso al canal VIP (válido ${vip.expires_in_hours}h, uso único):\n${vip.invite_link}`,
+            }));
+          } else {
+            console.error(`[WhatsApp] No se pudo generar link VIP para ${detectedEmail}`);
+            // No le mandamos nada raro al cliente — si falla, queda como si el bot no hubiera
+            // podido resolverlo solo; mejor que Víctor lo revise a mano.
+            await markUrgent(key, `Falló generación de link VIP para ${detectedEmail}`);
+          }
+        }
+
         await sock.sendPresenceUpdate('paused', jid);
 
         // Programamos un seguimiento único por si la persona no vuelve a escribir (sección 19.7)
@@ -226,7 +269,11 @@ async function startWhatsApp() {
           await sock.sendPresenceUpdate('paused', jid);
         });
       } catch (err) {
-        console.error('[WhatsApp] Error procesando mensaje:', err);
+        // OJO: nunca loguear el objeto "err" completo acá — los errores de decriptado de Baileys
+        // (ej. "Failed to decrypt message", "MessageCounterError") a veces traen la sesión
+        // criptográfica completa pegada adentro (privKey, rootKey, etc.), y terminaría expuesta
+        // en los logs de Railway. Solo logueamos el mensaje de texto del error.
+        console.error('[WhatsApp] Error procesando mensaje:', err?.message || 'Error desconocido');
         trackBotMessage(await sock.sendMessage(jid, { text: FALLBACK_MESSAGE }));
         await markUrgent(key, text);
       }
