@@ -152,10 +152,12 @@ export async function generateReply(chatKey, userMessage) {
         .trim();
     } catch (err) {
       const isRateLimit = err?.error?.error?.type === 'rate_limit_error' || err?.status === 429;
-      if (isRateLimit && attempt < maxRetries) {
-        const retryAfterHeader = err?.headers?.get?.('retry-after');
-        const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 15000;
-        console.error(`Rate limit de Anthropic. Reintentando en ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})...`);
+      const isNetworkErr = err?.code === 'ERR_STREAM_PREMATURE_CLOSE' || err?.code === 'ECONNRESET' || err?.message?.includes('premature close') || err?.message?.includes('fetch');
+      if ((isRateLimit || isNetworkErr) && attempt < maxRetries) {
+        const waitMs = isRateLimit
+          ? (err?.headers?.get?.('retry-after') ? Number(err.headers.get('retry-after')) * 1000 : 15000)
+          : 3000;
+        console.error(`[Claude] Error (${isRateLimit ? 'rate limit' : 'red'}). Reintentando en ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})...`);
         await sleep(waitMs);
         continue;
       }
