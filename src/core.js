@@ -80,7 +80,7 @@ Reglas estrictas:
 - [IMG:pago_confirmado_vip] → pantalla de "¡Pago confirmado!" con botón "Unirme al grupo VIP" (mandar SIEMPRE después de pago confirmado)
 - [IMG:app_abrir_bot] → pantalla del dashboard con botón "Abrir bot" (mandar cuando no le aparece nada en Telegram)
 - [IMG:renovar_membresia] → pantalla de "Mi cuenta" en vfxsignals.com/app mostrando el botón "Renovar membresía" (mandar cuando un cliente que YA tiene cuenta activa o vencida quiere volver a comprar/renovar — mucha gente no sabe que existe ese botón y por eso intenta registrarse de nuevo desde cero)
-Si el usuario manda una imagen que parece un comprobante de pago o transferencia bancaria: confirmale que se ve bien, y si es nuevo mandalo a https://vfxsignals.com/registro-broker para registrar ese depósito (sección 7.0 de la base). Usalas con criterio — solo cuando el usuario está en ese paso puntual. La imagen siempre se manda ANTES que tu texto, así que referenciala con 👆, nunca 👇.
+Si el usuario manda una imagen que parece un comprobante de pago: NUNCA asumas que es sobre el depósito del broker — no podés ver el contenido real de la imagen. Si el contexto de la conversación no deja clarísimo de qué se trata, preguntá directo cuál de las dos es: pago de la membresía VFX, o depósito en el broker Libertex (ver sección 7.0 de la base para el detalle completo de cada camino). Usalas con criterio — solo cuando el usuario está en ese paso puntual. La imagen siempre se manda ANTES que tu texto, así que referenciala con 👆, nunca 👇.
 14. Nunca dejes líneas en blanco dobles ni espacios vacíos largos en el medio de un mensaje — escribí en párrafos cortos y seguidos, como un chat real, no como un documento con saltos de sección.
 15. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
 16. Si estás operando en el canal de WhatsApp (conexión no oficial), seguí también las reglas anti-baneo de la sección 20 de la base de conocimiento: nunca iniciar conversación salvo el seguimiento del canal gratis, y ese seguimiento siempre con horarios y textos variados entre contacto y contacto, nunca en tanda.
@@ -198,6 +198,29 @@ export function extractVipLinkRequest(reply) {
   const wantsVipLink = /\[GENERAR_LINK_VIP\]/.test(reply);
   const cleanReply = reply.replace(/\[GENERAR_LINK_VIP\]/g, '').trim();
   return { wantsVipLink, cleanReply };
+}
+
+// ---------- Utilidad: partir una respuesta larga en varios mensajes, tipo persona real ----------
+// Adrian ya escribe en párrafos cortos separados por una línea en blanco (regla 14 del prompt).
+// En vez de mandar todo eso pegado en un solo mensaje de WhatsApp/Telegram, lo partimos en esos
+// mismos puntos y los mandamos como mensajes separados — así se ve como alguien escribiendo y
+// mandando de a poco, en vez de un bloque de texto tipo comunicado.
+const MAX_MESSAGE_CHUNKS = 4; // tope para no mandar una ráfaga larga si la respuesta es muy extensa
+export function splitIntoMessageChunks(text) {
+  const parts = text
+    .split(/\n\s*\n/) // corta en los saltos de párrafo (línea en blanco)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length <= 1) return [text.trim()]; // respuesta corta, un solo mensaje, sin partir
+
+  if (parts.length > MAX_MESSAGE_CHUNKS) {
+    // si hay más párrafos que el tope, juntamos los últimos en un solo mensaje final
+    const head = parts.slice(0, MAX_MESSAGE_CHUNKS - 1);
+    const tail = parts.slice(MAX_MESSAGE_CHUNKS - 1).join('\n\n');
+    return [...head, tail];
+  }
+  return parts;
 }
 
 // ---------- Utilidad: detectar un email dentro de un mensaje ----------
