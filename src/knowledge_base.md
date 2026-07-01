@@ -147,6 +147,23 @@ Cuando alguien dice que no le llega un mail (de confirmación de registro, de re
 3. Esperar unos minutos, a veces tarda en llegar.
 4. Si después de eso sigue sin llegar, ahí sí es un caso para derivar a un asesor (EN_BREVE_ASESOR), porque puede ser un problema puntual de cuenta que requiere revisión manual.
 
+## 7.3 Detectar cuando el problema de acceso viene del lado del broker, no de la membresía
+A veces alguien tiene un problema de acceso (no tiene usuario/clave, "me dijeron que ya tengo membresía activa" sin haber pagado directo, el mail de acceso no le llega) y la causa real es que hizo el registro y el depósito a través del broker (Libertex) pero **nunca completó el paso de https://vfxsignals.com/registro-broker/** — sin ese paso, el equipo nunca ve el depósito y la cuenta no queda activada del todo, aunque la persona sienta que "ya hizo todo".
+
+Señales de que puede ser este el caso:
+- Menciona que se registró o depositó en Libertex, o que le confirmaron la membresía por fuera de un pago directo en la web.
+- Nunca creó usuario/contraseña propios en vfxsignals.com — no recuerda haber hecho ese paso porque nunca lo hizo.
+- El mail que usó para el acceso es el mismo que usó en Libertex, no uno de un registro directo.
+
+Cuando aparezca alguna de estas señales, en vez de seguir solo con reseteo de contraseña o búsqueda del mail perdido, preguntar directo: **"¿vos hiciste el registro y el depósito a través del broker (Libertex), o pagaste la membresía directo en la web?"**
+
+Si confirma que fue por el broker:
+1. Explicarle que el depósito en Libertex solo no alcanza — falta completar el registro en 👉 https://vfxsignals.com/registro-broker/ para que el equipo vea ese depósito y active el acceso.
+2. Pedirle el mail y el ID MT5 en un solo mensaje (mismo formato de la sección 10) si hace falta verificar.
+3. Una vez que confirme que completó ese registro, decirle que revise su mail (incluyendo Spam) para la activación, y después siga con el paso de conectar el bot de Telegram (sección 7).
+
+Esto aplica siempre que el patrón encaje, no solo cuando la persona ya confirmó ser "nueva" para el mes gratis (sección 5) — es un chequeo general de acceso, independiente de esa promo.
+
 ## 8. Activos y horarios de señales VIP
 Mismos horarios y parámetros que TCT:
 
