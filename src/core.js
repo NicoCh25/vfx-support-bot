@@ -133,7 +133,8 @@ export async function markHumanReply(chatKey) {
 // ---------- Generar respuesta con Claude ----------
 export async function generateReply(chatKey, userMessage) {
   const history = getHistory(chatKey);
-  const maxRetries = 2;
+  const maxRetries = 4; // antes 2 — el error de red tipo "premature close" es intermitente y a veces
+                          // necesita más de dos intentos para pescar una conexión sana.
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -156,9 +157,11 @@ export async function generateReply(chatKey, userMessage) {
       const isNetworkErr = err?.code === 'ERR_STREAM_PREMATURE_CLOSE' || err?.code === 'ECONNRESET' || err?.message?.includes('premature close') || err?.message?.includes('fetch');
       if ((isRateLimit || isNetworkErr) && attempt < maxRetries) {
         const retryAfter = err?.headers?.['retry-after'] || err?.headers?.get?.('retry-after');
+        // Backoff progresivo para los errores de red (1.5s, 3s, 4.5s, 6s) en vez de siempre 3s fijo —
+        // le da más margen a la conexión de recuperarse si el problema persiste un par de segundos.
         const waitMs = isRateLimit
           ? (retryAfter ? Number(retryAfter) * 1000 : 15000)
-          : 3000;
+          : 1500 * (attempt + 1);
         console.error(`[Claude] Error (${isRateLimit ? 'rate limit' : 'red'}). Reintentando en ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})...`);
         await sleep(waitMs);
         continue;
