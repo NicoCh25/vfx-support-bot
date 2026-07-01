@@ -152,11 +152,12 @@ export async function generateReply(chatKey, userMessage) {
         .join('\n')
         .trim();
     } catch (err) {
-      const isRateLimit = err?.error?.error?.type === 'rate_limit_error' || err?.status === 429;
+      const isRateLimit = err?.error?.error?.type === 'rate_limit_error' || err?.status === 429 || err?.headers?.['retry-after'] !== undefined;
       const isNetworkErr = err?.code === 'ERR_STREAM_PREMATURE_CLOSE' || err?.code === 'ECONNRESET' || err?.message?.includes('premature close') || err?.message?.includes('fetch');
       if ((isRateLimit || isNetworkErr) && attempt < maxRetries) {
+        const retryAfter = err?.headers?.['retry-after'] || err?.headers?.get?.('retry-after');
         const waitMs = isRateLimit
-          ? (err?.headers?.get?.('retry-after') ? Number(err.headers.get('retry-after')) * 1000 : 15000)
+          ? (retryAfter ? Number(retryAfter) * 1000 : 15000)
           : 3000;
         console.error(`[Claude] Error (${isRateLimit ? 'rate limit' : 'red'}). Reintentando en ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})...`);
         await sleep(waitMs);
