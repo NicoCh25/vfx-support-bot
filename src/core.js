@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
+import sharp from 'sharp';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -213,7 +214,18 @@ export async function analyzeImage(imageBuffer, mimeType = 'image/jpeg', context
   const maxRetries = 2;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const base64 = imageBuffer.toString('base64');
+      // Comprimir la imagen antes de mandarla a Claude para evitar errores de red con imágenes grandes
+      let processedBuffer = imageBuffer;
+      try {
+        processedBuffer = await sharp(imageBuffer)
+          .resize({ width: 1024, withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        mimeType = 'image/jpeg';
+      } catch (sharpErr) {
+        console.warn('[Imagen] No se pudo comprimir, usando original:', sharpErr.message);
+      }
+      const base64 = processedBuffer.toString('base64');
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 500,
