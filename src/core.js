@@ -16,9 +16,20 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const HUMAN_PAUSE_HOURS = 1; // pausa de 1 hora cuando Víctor responde manual
 const MAX_HISTORY_MESSAGES = 12; // últimas 6 idas y vueltas por chat
 
+// ---------- Integración con la plataforma VFX (vfxsignals.com / Lovable) ----------
+// OJO: esto es un proyecto de Supabase DISTINTO al de SUPABASE_URL de arriba (ese es el propio
+// del bot, para chat_status/urgent_chats). No hace falta unificarlos: hablamos con la plataforma
+// vía sus Edge Functions, autenticados con una clave secreta propia del bot (BOT_INTERNAL_SECRET),
+// no con la clave de administrador del panel.
+const VFX_PLATFORM_FUNCTIONS_URL = process.env.VFX_PLATFORM_FUNCTIONS_URL; // ej: https://utevsnyqmzxpgotxaetf.supabase.co/functions/v1
+const BOT_INTERNAL_SECRET = process.env.BOT_INTERNAL_SECRET;
+
 if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('Faltan variables de entorno. Revisá ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY.');
   process.exit(1);
+}
+if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) {
+  console.warn('[Plataforma VFX] Faltan VFX_PLATFORM_FUNCTIONS_URL / BOT_INTERNAL_SECRET — el bot no va a poder consultar el estado de cuentas ni generar links VIP.');
 }
 
 export const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -40,6 +51,7 @@ export const imageMap = {
   trade_btc: 'btc_forma_trade.jpg',
   pago_confirmado_vip: 'pago_confirmado_unirme_vip.png',
   app_abrir_bot: 'app_abrir_bot.png',
+  renovar_membresia: 'mi_cuenta_renovar_membresia.png',
 };
 
 export const SYSTEM_PROMPT = `Te llamás Adrian y sos parte del equipo de soporte de VFX Signals, una comunidad de señales de trading VIP (XAUUSD, US30, BTC) enfocada en Paraguay. Hablás como una persona real, nunca decís que sos una IA ni sonás robótico.
@@ -52,7 +64,7 @@ Reglas estrictas:
 5. No uses bullets innecesarios en chats cortos, escribí en prosa natural salvo que listar opciones realmente ayude (ej: los 3 métodos de pago con emojis). Mensajes cortos y directos al grano — mucha gente no lee párrafos largos. Priorizá frases breves, una idea por oración, sin relleno. Mejor 2-3 líneas claras que un párrafo largo.
 6. NUNCA ofrezcas el canal gratuito de Telegram (https://t.me/vfxsignalfree) en una conversación activa con alguien que recién está preguntando — ese canal es solo para mensajes de seguimiento cuando alguien dejó de responder, no para primera respuesta.
 7. Siempre que el tema sea Libertex (registro, depósito, bono del 50%, "no puedo registrarme"), incluí el link de afiliado exacto: https://go.libertex-affiliates.com/visit/?bta=69222&nci=22420&afp=VFX — sin este link específico el registro no genera la relación correcta con VFX.
-8. Para pagos de membresía: ANTES de mandar cualquier link, preguntá si la persona ya tiene cuenta en VFX o sería su primera vez (mucha gente ya tiene cuenta sin saberlo, por ejemplo si se registró antes por el flujo del broker). Nunca mandes los dos links juntos. Si no está registrado, mandalo a https://vfxsignals.com/registro (ahí elige entre tarjeta, USDT o transferencia, y es paso obligatorio para acceder al canal VIP). Si ya está registrado, mandalo a https://vfxsignals.com/app a entrar con usuario y clave y comprar/renovar desde "Mi cuenta". Si alguien ya completó el registro antes (o dice "ya hice esto"), NUNCA lo mandes a registrarse de nuevo — siempre es entrar a vfxsignals.com/app, y si no recuerda la contraseña, restablecerla desde ahí (ver sección 7.1 de la base).
+8. Para pagos de membresía: ANTES de mandar cualquier link, preguntá si la persona ya tiene cuenta en VFX o sería su primera vez (mucha gente ya tiene cuenta sin saberlo, por ejemplo si se registró antes por el flujo del broker). Nunca mandes los dos links juntos. Si no está registrado, mandalo a https://vfxsignals.com/registro (ahí elige entre tarjeta, USDT o transferencia, y es paso obligatorio para acceder al canal VIP). Si ya está registrado (dice que ya tiene cuenta, que ya fue miembro antes, o que quiere volver a comprar/renovar), mandalo a https://vfxsignals.com/app a entrar con usuario y clave, y mandale la imagen [IMG:renovar_membresia] para que vea exactamente dónde está el botón "Renovar membresía" dentro de "Mi cuenta" — así no intenta registrarse de nuevo desde cero. Si alguien ya completó el registro antes (o dice "ya hice esto"), NUNCA lo mandes a registrarse de nuevo — siempre es entrar a vfxsignals.com/app y renovar desde ahí, y si no recuerda la contraseña, restablecerla desde ahí (ver sección 7.1 de la base).
 9. Nunca compartas datos sensibles que no estén en la base de conocimiento (no inventes wallets, links o números).
 10. Sos un vendedor, no solo soporte, pero eso no significa interrogar a la persona después de cada mensaje. Terminá con una pregunta de avance SOLO cuando tiene sentido (después de dar info clave como precio o pasos, cuando el usuario está indeciso, o cuando claramente espera que vos sigas la conversación). Si la persona te agradece, dice "ya lo hago", "dale", "ahí voy" o cierra el intercambio de forma natural, dejalo así — no le agregues otra pregunta encima, dejá que sea ella la que retome cuando quiera. Ver sección 19 de la base de conocimiento para las técnicas exactas de cierre y cuándo aplican.
 11. Si alguien pregunta cómo entrar gratis o por una promo de mes gratis, preguntá si ya tuvo alguna membresía antes (sección 5 de la base) SOLO la primera vez que surge el tema en la conversación. Una vez que el usuario contestó (nuevo o no nuevo), nunca más se lo vuelvas a preguntar en ese chat — usá esa respuesta para todo lo que sigue, incluso si cambian de tema y vuelven a hablar de depósitos más adelante.
@@ -67,10 +79,12 @@ Reglas estrictas:
 - [IMG:trade_btc] → cómo tomar el trade en BTC/USD
 - [IMG:pago_confirmado_vip] → pantalla de "¡Pago confirmado!" con botón "Unirme al grupo VIP" (mandar SIEMPRE después de pago confirmado)
 - [IMG:app_abrir_bot] → pantalla del dashboard con botón "Abrir bot" (mandar cuando no le aparece nada en Telegram)
+- [IMG:renovar_membresia] → pantalla de "Mi cuenta" en vfxsignals.com/app mostrando el botón "Renovar membresía" (mandar cuando un cliente que YA tiene cuenta activa o vencida quiere volver a comprar/renovar — mucha gente no sabe que existe ese botón y por eso intenta registrarse de nuevo desde cero)
 Si el usuario manda una imagen que parece un comprobante de pago o transferencia bancaria: confirmale que se ve bien, y si es nuevo mandalo a https://vfxsignals.com/registro-broker para registrar ese depósito (sección 7.0 de la base). Usalas con criterio — solo cuando el usuario está en ese paso puntual. La imagen siempre se manda ANTES que tu texto, así que referenciala con 👆, nunca 👇.
 14. Nunca dejes líneas en blanco dobles ni espacios vacíos largos en el medio de un mensaje — escribí en párrafos cortos y seguidos, como un chat real, no como un documento con saltos de sección.
 15. Tenés el historial de la conversación con esta persona. NUNCA repitas una pregunta que el usuario ya contestó antes en este mismo chat (ej. si ya dijo que es nuevo, no le vuelvas a preguntar si es nuevo). Usá lo que ya sabés de la conversación para avanzar al siguiente paso, no para reiniciar el flujo.
 16. Si estás operando en el canal de WhatsApp (conexión no oficial), seguí también las reglas anti-baneo de la sección 20 de la base de conocimiento: nunca iniciar conversación salvo el seguimiento del canal gratis, y ese seguimiento siempre con horarios y textos variados entre contacto y contacto, nunca en tanda.
+17. A veces vas a recibir, antes del mensaje del usuario, una línea que empieza con "CONTEXTO_SISTEMA:". Eso es información real y verificada que vino directo de la base de datos de VFX Signals (no la inventó el usuario), así que es más confiable que lo que la persona te diga sobre su propia cuenta. Usala como fuente de verdad: si dice "CONTEXTO_SISTEMA" que la cuenta está vencida, no le creas a la persona si dice "no, yo pagué" sin más — pedile el comprobante o derivá con EN_BREVE_ASESOR. Nunca le muestres al usuario la etiqueta "CONTEXTO_SISTEMA" ni le digas de dónde sacaste el dato, solo usalo para responder con naturalidad, como si ya lo supieras.
 
 BASE DE CONOCIMIENTO:
 ${knowledgeBase}`;
@@ -177,6 +191,85 @@ export function extractImagesAndCleanText(reply) {
   let cleanReply = reply.replace(/\[IMG:\w+\]/g, '').trim();
   cleanReply = cleanReply.replace(/\n{3,}/g, '\n\n'); // colapsar líneas en blanco de más
   return { imageTags, cleanReply };
+}
+
+// ---------- Utilidad: detectar el tag [GENERAR_LINK_VIP] y sacarlo del texto ----------
+export function extractVipLinkRequest(reply) {
+  const wantsVipLink = /\[GENERAR_LINK_VIP\]/.test(reply);
+  const cleanReply = reply.replace(/\[GENERAR_LINK_VIP\]/g, '').trim();
+  return { wantsVipLink, cleanReply };
+}
+
+// ---------- Utilidad: detectar un email dentro de un mensaje ----------
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+export function extractEmail(text) {
+  if (!text) return null;
+  const match = text.match(EMAIL_REGEX);
+  return match ? match[0] : null;
+}
+
+// ---------- Consulta a la plataforma VFX: estado de cuenta por mail ----------
+// Devuelve null si no está configurado, si hubo error de red, o si el mail no existe (found: false).
+export async function checkClienteStatus(email) {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return null;
+  try {
+    const res = await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-cliente-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      console.error('[Plataforma VFX] bot-cliente-status respondió', res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (err) {
+    console.error('[Plataforma VFX] Error consultando estado de cliente:', err.message);
+    return null;
+  }
+}
+
+// ---------- Generar un link VIP de Telegram nuevo para un mail (replica el botón "Regenerar" del admin) ----------
+export async function generateVipLink(email) {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return null;
+  try {
+    const res = await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-generate-vip-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[Plataforma VFX] bot-generate-vip-link falló:', data?.error || res.status);
+      return null;
+    }
+    return data; // { ok, invite_link, expires_in_hours }
+  } catch (err) {
+    console.error('[Plataforma VFX] Error generando link VIP:', err.message);
+    return null;
+  }
+}
+
+// ---------- Traduce el estado de checkClienteStatus a una frase de contexto para el prompt ----------
+export function buildClienteStatusContext(status) {
+  if (!status) return null;
+  if (!status.found) {
+    return 'CONTEXTO_SISTEMA: ese mail no está registrado en VFX Signals. Es una persona nueva — mandala a https://vfxsignals.com/registro.';
+  }
+  const venceFmt = status.vence
+    ? new Date(status.vence).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : 'sin fecha registrada';
+
+  if (status.estado === 'vencido') {
+    return `CONTEXTO_SISTEMA: ese mail SÍ existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), pero su membresía está VENCIDA desde el ${venceFmt}. NO lo mandes a registrarse de nuevo — mandalo a https://vfxsignals.com/app a renovar desde "Mi cuenta".`;
+  }
+  if (status.estado === 'vence_hoy' || status.estado === 'vence_pronto') {
+    return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), membresía ACTIVA pero vence el ${venceFmt} (pronto). Si pregunta por el acceso VIP, está habilitado; si quiere renovar antes de que venza, mandalo a https://vfxsignals.com/app.`;
+  }
+  if (status.estado === 'activo') {
+    return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), membresía ACTIVA hasta el ${venceFmt}. NUNCA lo mandes a registrarse de nuevo. Si dice que no le abre el grupo VIP o pide el acceso, podés generarle un link nuevo escribiendo el tag [GENERAR_LINK_VIP] en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar y el sistema manda el link real después de tu mensaje).`;
+  }
+  return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), pero no tiene fecha de vencimiento cargada. Preguntale más detalle antes de asumir nada.`;
 }
 
 // ---------- Utilidad: delay random tipo "humano" antes de responder (clave para WhatsApp anti-baneo) ----------
