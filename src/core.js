@@ -210,37 +210,40 @@ export async function transcribeAudio(audioBuffer, mimeType = 'audio/ogg') {
 
 // ---------- Análisis de imágenes con Claude Vision ----------
 export async function analyzeImage(imageBuffer, mimeType = 'image/jpeg', contextText = '') {
-  try {
-    const base64 = imageBuffer.toString('base64');
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 500,
-      system: SYSTEM_PROMPT,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mimeType, data: base64 },
-          },
-          {
-            type: 'text',
-            text: contextText
-              ? `El usuario mandó esta imagen y dijo: "${contextText}". Respondé en base a lo que ves y a la base de conocimiento.`
-              : 'El usuario mandó esta imagen sin texto. Describí brevemente lo que ves y respondé si es relevante para VFX Signals (ej: comprobante de pago, captura de error, ID de cuenta, etc.).',
-          },
-        ],
-      }],
-    });
-    return response.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
-  } catch (err) {
-    console.error('[Imagen] Error analizando:', err.message);
-    return null;
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const base64 = imageBuffer.toString('base64');
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 500,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+            {
+              type: 'text',
+              text: contextText
+                ? `El usuario mandó esta imagen y dijo: "${contextText}". Respondé en base a lo que ves y a la base de conocimiento.`
+                : 'El usuario mandó esta imagen sin texto. Describí brevemente lo que ves y respondé si es relevante para VFX Signals (ej: comprobante de pago, captura de error, ID de cuenta, etc.).',
+            },
+          ],
+        }],
+      });
+      return response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+    } catch (err) {
+      const isNetworkErr = err?.code === 'ERR_STREAM_PREMATURE_CLOSE' || err?.code === 'ECONNRESET' || err?.message?.includes('premature close');
+      if (isNetworkErr && attempt < maxRetries) {
+        console.error(`[Imagen] Error de red. Reintentando en 3s (intento ${attempt + 1}/${maxRetries})...`);
+        await sleep(3000);
+        continue;
+      }
+      console.error('[Imagen] Error analizando:', err.message);
+      return null;
+    }
   }
+  return null;
 }
 
 // ---------- Seguimiento automático espaciado (sección 19.7 de la base de conocimiento) ----------
