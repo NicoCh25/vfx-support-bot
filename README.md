@@ -1,62 +1,33 @@
-# VFX Support Bot
+# Qué hay en esta carpeta
 
-Bot de soporte con IA para VFX Signals (Telegram, primera versión).
+## 🤖 Bot (Railway) — subir estos 4 a GitHub, todos juntos en el mismo commit
+- `core.js`
+- `whatsapp.js`
+- `index.js`
+- `knowledge_base.md`
 
-## Setup
+## 🖼️ Imágenes nuevas — subir a la carpeta `images/` del repo del bot
+- `points_referencia_us30.jpg` ✅ lista
+- `points_referencia_xauusd.jpg` ✅ lista
+- `points_referencia_btc.jpg` ⚠️ TODAVÍA FALTA — el archivo que mandaste se duplicó con el de US30 (mismo archivo, no es la de Bitcoin). Renombrala antes de volver a mandarla (ver el mensaje anterior) y te la agrego.
 
-1. Crear las tablas en Supabase: correr el contenido de `supabase_setup.sql` en el SQL Editor de tu proyecto Supabase.
-2. Cargar las variables de entorno en Railway (Settings → Variables del servicio):
-   - `TELEGRAM_BOT_TOKEN`
-   - `ANTHROPIC_API_KEY`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_KEY`
-3. Subir este código al repo conectado a Railway (rama `main`). Railway va a instalar dependencias (`npm install`) y correr `npm start` automáticamente.
+Mientras no esté esa imagen, el bot va a intentar mandar `[IMG:points_btc]` y no la va a encontrar — no rompe nada (el código ya tiene un manejo de "imagen no encontrada" que solo lo loguea), pero esa referencia puntual de Bitcoin no se va a ver hasta que la subas.
 
-## ⚠️ Punto importante a resolver: la regla de las 24hs en Telegram
+## 🌐 Plataforma VFX (Lovable/Supabase) — carpeta `plataforma_vfx/`
+- `crm_campaigns_and_tags.sql` → correr primero en Supabase (SQL Editor o vía Lovable). Agrega las tablas de etiquetas y campañas de goteo.
+- `supabase_functions/` → 4 Edge Functions para subir a Supabase:
+  - `bot-cliente-status.ts` → consulta de estado de cuenta por mail
+  - `bot-generate-vip-link.ts` → generación de link VIP de Telegram
+  - `bot-next-campaign-message.ts` → siguiente mensaje de goteo pendiente
+  - `bot-mark-campaign-sent.ts` → marca un envío de campaña como hecho/fallido
+- `prompts_lovable/` → 2 prompts para pegarle directo a Lovable:
+  - `lovable_prompt_fix_start.md` → arregla el `/start` sin código en el bot de Telegram
+  - `lovable_prompt_crm.md` → arma la pestaña "CRM" del admin (etiquetas, plantillas, campañas)
 
-En Telegram, los mensajes que vos mandás a un usuario desde TU cuenta personal NO pasan por este bot — son completamente independientes. El bot solo "ve" lo que la gente le escribe directamente a él.
-
-Esto significa que, tal como está ahora, el bot no tiene forma automática de saber que "vos" respondiste manualmente, porque tu chat personal con un usuario y el chat de ese usuario con el bot son dos cosas distintas.
-
-Opciones para resolver esto:
-- **A)** Vos atendés soporte siempre a través de este mismo bot (no desde tu Telegram personal) — así el sistema sabe perfecto cuándo respondiste vos.
-- **B)** Armamos un comando manual, ej. `/pausar` que vos le mandás al bot indicando el chat a pausar, cuando respondiste por fuera.
-- **C)** Dejamos la regla de 24hs solo para cuando migremos a WhatsApp Business API (ahí si se puede detectar fácil quién mandó cada mensaje, vos o el bot, porque comparten el mismo número).
-
-Para la versión de prueba en Telegram, sugiero la opción A: que el soporte por Telegram se atienda 100% a través de este bot (vos podés ver las conversaciones igual, y si querés intervenir, usamos la opción B).
-
-## Conectar WhatsApp (Baileys — conexión no oficial)
-
-⚠️ Importante: esta conexión usa el mismo número que ya usás en tu celular (vía "Dispositivos vinculados", igual que WhatsApp Web), no la API oficial de Meta. Revisar la sección 20 de `knowledge_base.md` para las reglas anti-baneo que ya están integradas en el código (delay humano antes de responder, nunca iniciar conversación).
-
-### Pasos en Railway
-
-1. **Creá un segundo servicio** en el mismo proyecto de Railway (o uno nuevo), conectado al mismo repo de GitHub.
-2. En ese servicio, andá a **Settings → Deploy** y cambiá el **Start Command** a:
-   ```
-   npm run start:whatsapp
-   ```
-3. **Agregá un Volume** (disco persistente) a este servicio: Railway → el servicio → pestaña **Volumes** → "New Volume" → montalo en una ruta, por ejemplo `/data`.
-4. Agregá la variable de entorno `WHATSAPP_AUTH_DIR` con el valor `/data/whatsapp-auth` (para que la sesión de login se guarde en el disco persistente y no se pierda en cada redeploy).
-5. Las demás variables (`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`) son las mismas que ya tenés cargadas — copialas a este servicio nuevo también.
-6. Hacé deploy. Este servicio ahora levanta también un mini servidor web para mostrar el QR como imagen. Para verlo necesitás un dominio público:
-   - Andá a este servicio → **Settings → Networking** → "Generate Domain"
-   - Railway te da una URL tipo `https://thriving-victory-production.up.railway.app`
-   - Abrí `esa-url/qr` desde el navegador del celular de Víctor (o el tuyo, para escanearlo con la cámara apuntando a otra pantalla)
-   - Ahí vas a ver el código QR como una imagen normal, fácil de escanear
-7. Desde el celular de Víctor: WhatsApp → Configuración → **Dispositivos vinculados** → "Vincular un dispositivo" → escanear ese QR (los QR de WhatsApp vencen rápido, en menos de un minuto — si tarda, refrescá la página `/qr` para que aparezca uno nuevo).
-8. Una vez vinculado, esa misma página `/qr` va a mostrar "✅ Conectado y funcionando" en vez del QR, y los logs van a decir "VFX Support Bot (WhatsApp) corriendo ✅".
-
-### Si hay que volver a vincular
-Si el servicio pierde la sesión (por ejemplo, si Víctor cierra la sesión desde el celular, o se borra el Volume), simplemente hay que volver a escanear un QR nuevo que va a aparecer solo en los logs.
-
-### Error de sesión corrupta ("Failed to decrypt message", "MessageCounterError")
-Esto pasa de vez en cuando con Baileys, sobre todo después de varias reconexiones forzadas seguidas. El código ya está preparado para no crashear todo el proceso cuando aparece. Si los errores se vuelven muy frecuentes o el bot deja de responder bien, lo más prolijo es resetear la sesión:
-1. En Railway, andá al servicio → la pestaña del Volume (`thriving-victory-volume`) → buscá la opción de explorar/borrar archivos, o si no está disponible ahí, podés borrar la carpeta `whatsapp-auth` conectándote por la Console del servicio con el comando `rm -rf /data/whatsapp-auth`.
-2. Redeployá el servicio.
-3. Va a generar un QR nuevo en `/qr` — Víctor tiene que volver a vincular el dispositivo una vez más.
-
-## Próximos pasos
-- Probar el bot con preguntas reales del día a día.
-- Revisar y completar la base de conocimiento (`src/knowledge_base.md`) a medida que aparezcan casos nuevos.
-- Evaluar migrar a la API oficial de Meta (o un inbox tipo Chatwoot) si el volumen crece, para bajar el riesgo de baneo y tener una bandeja prolija donde Víctor también pueda responder manual.
+## ⚙️ Variables de entorno pendientes de confirmar
+Repasando lo que fuimos armando, estas son las variables que el bot de WhatsApp (`whatsapp.js`) necesita en Railway — confirmá que las tengas todas:
+- `WHATSAPP_AUTH_DIR`
+- `VFX_PLATFORM_FUNCTIONS_URL` = `https://utevsnyqmzxpgotxaetf.supabase.co/functions/v1`
+- `BOT_INTERNAL_SECRET` (la misma que configuraste como secret en Supabase)
+- `TELEGRAM_BOT_TOKEN`
+- `OWNER_TELEGRAM_CHAT_ID` = `537747411`
