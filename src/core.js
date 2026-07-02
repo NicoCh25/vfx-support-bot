@@ -273,6 +273,44 @@ export async function generateVipLink(email) {
   }
 }
 
+// ---------- CRM de prospección: goteo de campañas ----------
+// Estas dos funciones son el puente con la cola de campañas que vive en la plataforma VFX.
+// El horario permitido, el cupo diario y el espaciado entre mensajes ya se resuelven del lado
+// de la base de datos (ver build_campaign_queue en la migración) — acá solo preguntamos
+// "¿hay algo para mandar YA?" y reportamos el resultado.
+export async function fetchNextCampaignMessage() {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return null;
+  try {
+    const res = await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-next-campaign-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      console.error('[Campañas] bot-next-campaign-message respondió', res.status);
+      return null;
+    }
+    const data = await res.json();
+    return data?.hasMessage ? data : null; // { recipientId, whatsapp, mensaje }
+  } catch (err) {
+    console.error('[Campañas] Error consultando próximo mensaje:', err.message);
+    return null;
+  }
+}
+
+export async function markCampaignSent(recipientId, success, errorMessage = null) {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return;
+  try {
+    await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-mark-campaign-sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({ recipientId, success, errorMessage }),
+    });
+  } catch (err) {
+    console.error('[Campañas] Error marcando envío:', err.message);
+  }
+}
+
 // ---------- Traduce el estado de checkClienteStatus a una frase de contexto para el prompt ----------
 export function buildClienteStatusContext(status) {
   if (!status) return null;
