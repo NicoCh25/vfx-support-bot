@@ -18,6 +18,8 @@ import {
   extractPasswordResetRequest,
   splitIntoMessageChunks,
   extractEmail,
+  cacheEmail,
+  getCachedEmail,
   checkClienteStatus,
   buildClienteStatusContext,
   resetPassword,
@@ -442,9 +444,13 @@ async function startWhatsApp() {
           messageForAI = 'El usuario mandó un audio. Respondé de forma natural como si fuera una persona real: pedile que te escriba lo que necesita porque en este momento no podés escuchar audios, pero de forma amigable y sin sonar a bot. Ej: "Bro, estoy en modo texto ahora 😅 ¿Me escribís lo que necesitás?"';
         }
 
-        // Si el usuario mandó un mail, consultamos su estado real en la plataforma VFX
-        // y se lo pasamos a Claude como contexto verificado (ver regla 17 del prompt).
-        const detectedEmail = extractEmail(text);
+        // Si el usuario mandó un mail (ahora o en algún mensaje anterior de este chat),
+        // consultamos su estado real en la plataforma VFX y se lo pasamos a Claude como
+        // contexto verificado (ver regla 17 del prompt). El mail queda "pegado" al chat para
+        // que funcione incluso en mensajes posteriores donde no lo vuelve a escribir.
+        const emailInMessage = extractEmail(text);
+        if (emailInMessage) cacheEmail(key, emailInMessage);
+        const detectedEmail = emailInMessage || getCachedEmail(key);
         if (detectedEmail) {
           const status = await checkClienteStatus(detectedEmail);
           const context = buildClienteStatusContext(status);
