@@ -52,6 +52,7 @@ export const imageMap = {
   pago_confirmado_vip: 'pago_confirmado_unirme_vip.png',
   app_abrir_bot: 'app_abrir_bot.png',
   renovar_membresia: 'mi_cuenta_renovar_membresia.png',
+  sumar_mes: 'mi_cuenta_sumar_mes.png',
   points_us30: 'points_referencia_us30.jpg',
   points_btc: 'points_referencia_btc.jpg',
   points_xauusd: 'points_referencia_xauusd.jpg',
@@ -200,11 +201,11 @@ export function extractImagesAndCleanText(reply) {
   return { imageTags, cleanReply };
 }
 
-// ---------- Utilidad: detectar el tag [GENERAR_LINK_VIP] y sacarlo del texto ----------
-export function extractVipLinkRequest(reply) {
-  const wantsVipLink = /\[GENERAR_LINK_VIP\]/.test(reply);
-  const cleanReply = reply.replace(/\[GENERAR_LINK_VIP\]/g, '').trim();
-  return { wantsVipLink, cleanReply };
+// ---------- Utilidad: detectar el tag [RESETEAR_CONTRASEÑA] y sacarlo del texto ----------
+export function extractPasswordResetRequest(reply) {
+  const wantsPasswordReset = /\[RESETEAR_CONTRASEÑA\]/.test(reply);
+  const cleanReply = reply.replace(/\[RESETEAR_CONTRASEÑA\]/g, '').trim();
+  return { wantsPasswordReset, cleanReply };
 }
 
 // ---------- Utilidad: partir una respuesta larga en varios mensajes, tipo persona real ----------
@@ -280,6 +281,66 @@ export async function generateVipLink(email) {
   }
 }
 
+// ---------- Resetear la contraseña de un cliente (reemplaza el link VIP directo) ----------
+// Por qué esto y no un link de Telegram directo: si le mandamos el link de invitación crudo,
+// la persona entra al grupo VIP pero NUNCA pasa por el bot de Telegram (nunca le da /start),
+// así que el sistema no le vincula el telegram_user_id y queda "desconectada" del bot para
+// renovaciones/kicks futuros. Reseteando la clave, la persona entra a vfxsignals.com/app y
+// usa el botón "Abrir bot" de ahí — que sí la conecta correctamente.
+export async function resetPassword(email) {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return null;
+  try {
+    const res = await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[Plataforma VFX] bot-reset-password falló:', data?.error || res.status);
+      return null;
+    }
+    return data; // { ok, new_password }
+  } catch (err) {
+    console.error('[Plataforma VFX] Error reseteando contraseña:', err.message);
+    return null;
+  }
+}
+
+// ---------- Recordatorio de vencimiento próximo (5 días antes) ----------
+export async function fetchNextRenewalReminder() {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return null;
+  try {
+    const res = await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-next-renewal-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      console.error('[Recordatorios] bot-next-renewal-reminder respondió', res.status);
+      return null;
+    }
+    const data = await res.json();
+    return data?.hasReminder ? data : null;
+  } catch (err) {
+    console.error('[Recordatorios] Error consultando próximo recordatorio:', err.message);
+    return null;
+  }
+}
+
+export async function markRenewalReminderSent(referidoId, vence, tipo) {
+  if (!VFX_PLATFORM_FUNCTIONS_URL || !BOT_INTERNAL_SECRET) return;
+  try {
+    await fetch(`${VFX_PLATFORM_FUNCTIONS_URL}/bot-mark-renewal-reminder-sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-bot-secret': BOT_INTERNAL_SECRET },
+      body: JSON.stringify({ referidoId, vence, tipo }),
+    });
+  } catch (err) {
+    console.error('[Recordatorios] Error marcando recordatorio como enviado:', err.message);
+  }
+}
+
 // ---------- CRM de prospección: goteo de campañas ----------
 // Estas dos funciones son el puente con la cola de campañas que vive en la plataforma VFX.
 // El horario permitido, el cupo diario y el espaciado entre mensajes ya se resuelven del lado
@@ -335,7 +396,7 @@ export function buildClienteStatusContext(status) {
     return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), membresía ACTIVA pero vence el ${venceFmt} (pronto). Si pregunta por el acceso VIP, está habilitado; si quiere renovar antes de que venza, mandalo a https://vfxsignals.com/app.`;
   }
   if (status.estado === 'activo') {
-    return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), membresía ACTIVA hasta el ${venceFmt}. NUNCA lo mandes a registrarse de nuevo. Si dice que no le abre el grupo VIP o pide el acceso, podés generarle un link nuevo escribiendo el tag [GENERAR_LINK_VIP] en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar y el sistema manda el link real después de tu mensaje).`;
+    return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), membresía ACTIVA hasta el ${venceFmt}. NUNCA lo mandes a registrarse de nuevo. Si dice que no le abre el grupo VIP, que perdió el acceso, o que no recuerda cómo entrar: NO le pidas que "haga clic en tal link" — mejor generale una contraseña nueva escribiendo el tag [RESETEAR_CONTRASEÑA] en tu respuesta (en cualquier parte del texto, se va a quitar antes de enviar y el sistema le manda la clave nueva después de tu mensaje). Explicale que con esa clave entre a vfxsignals.com/app con su mail, y ahí toque el botón "Abrir bot" para reconectar su Telegram — así queda bien vinculado al sistema, a diferencia de un link directo que lo saltea.`;
   }
   return `CONTEXTO_SISTEMA: ese mail existe en VFX Signals (cliente: ${status.nombre || 'sin nombre'}), pero no tiene fecha de vencimiento cargada. Preguntale más detalle antes de asumir nada.`;
 }
