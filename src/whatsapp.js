@@ -15,14 +15,16 @@ import {
   markHumanReply,
   generateReply,
   extractImagesAndCleanText,
-  extractVipLinkRequest,
+  extractPasswordResetRequest,
   splitIntoMessageChunks,
   extractEmail,
   checkClienteStatus,
   buildClienteStatusContext,
-  generateVipLink,
+  resetPassword,
   fetchNextCampaignMessage,
   markCampaignSent,
+  fetchNextRenewalReminder,
+  markRenewalReminderSent,
   randomDelayMs,
   sleep,
   scheduleFollowUp,
@@ -106,12 +108,72 @@ process.on('uncaughtException', (err) => {
 // ---------- Servidor web: muestra el QR como imagen para escanear fácil desde el celular ----------
 let latestQrDataUrl = null;
 let connectionStatus = 'Iniciando...';
+let currentSock = null; // referencia al socket activo, para poder cerrarlo desde el botón de reset
+
+// Borra todo lo que haya en la carpeta de sesión y fuerza una reconexión desde cero.
+// Ya no hace falta ir a Railway a cambiar WHATSAPP_AUTH_DIR a mano cada vez que la sesión se
+// corrompe — con este botón en /qr alcanza, y siempre usa la MISMA carpeta (no acumula v2, v3, v4...).
+async function resetSession() {
+  stopCampaignLoop();
+  stopRenewalReminderLoop();
+  try {
+    const files = fs.readdirSync(AUTH_DIR);
+    for (const f of files) {
+      fs.rmSync(path.join(AUTH_DIR, f), { recursive: true, force: true });
+    }
+    console.log('[WhatsApp] Carpeta de sesión vaciada por reset manual desde /qr.');
+  } catch (err) {
+    console.error('[WhatsApp] Error borrando la carpeta de sesión:', err.message);
+  }
+
+  latestQrDataUrl = null;
+  connectionStatus = 'Sesión reseteada. Generando QR nuevo...';
+
+  if (currentSock) {
+    // Esto dispara el 'close' del socket, que ya tiene su propio manejo de reconexión
+    // automática (ver connection.update más abajo) — no hace falta duplicar ese llamado acá.
+    try {
+      currentSock.end(new Error('Reset manual solicitado desde /qr'));
+    } catch (err) {
+      console.error('[WhatsApp] Error cerrando el socket viejo:', err.message);
+      setTimeout(() => startWhatsApp(), 1000); // resguardo por si end() falla silenciosamente
+    }
+  } else {
+    setTimeout(() => startWhatsApp(), 1000); // todavía no había conexión armada, arrancamos directo
+  }
+}
 
 const server = http.createServer(async (req, res) => {
+  if (req.url === '/qr/reset' && req.method === 'POST') {
+    await resetSession();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (req.url === '/qr') {
     if (!latestQrDataUrl) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(`<html><body style="font-family:sans-serif;text-align:center;padding-top:50px;"><h2>${connectionStatus}</h2><p>Si ya estaba conectado, no hace falta escanear nada. Si esperabas un QR, refrescá esta página en unos segundos.</p></body></html>`);
+      res.end(`
+        <html>
+          <body style="font-family:sans-serif;text-align:center;padding-top:50px;">
+            <h2>${connectionStatus}</h2>
+            <p>Si ya estaba conectado, no hace falta escanear nada. Si esperabas un QR, esta página se refresca sola.</p>
+            <button onclick="resetSesion()" style="margin-top:30px;padding:12px 20px;background:#c0392b;color:white;border:none;border-radius:8px;font-size:16px;cursor:pointer;">Resetear sesión y generar QR nuevo</button>
+            <p style="color:#888;font-size:13px;margin-top:10px;">Usar solo si la sesión está fallando (errores de "Bad MAC" en los logs) y no vinieron mensajes nuevos hace rato.</p>
+            <script>
+              function resetSesion() {
+                if (!confirm('¿Seguro? Esto corta la sesión actual y vas a tener que escanear un QR nuevo.')) return;
+                fetch('/qr/reset', { method: 'POST' }).then(() => {
+                  document.body.innerHTML = '<h2 style="font-family:sans-serif;text-align:center;margin-top:50px;">Reseteando... refrescá en unos segundos</h2>';
+                  setTimeout(() => location.reload(), 4000);
+                });
+              }
+              setTimeout(() => location.reload(), 15000); // auto-refresh mientras espera el QR
+            </script>
+          </body>
+        </html>
+      `);
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -121,7 +183,8 @@ const server = http.createServer(async (req, res) => {
           <h2>Escaneá este QR desde WhatsApp</h2>
           <p>Configuración → Dispositivos vinculados → Vincular un dispositivo</p>
           <img src="${latestQrDataUrl}" style="width:300px;height:300px;" />
-          <p style="color:#888;">Esta página se actualiza sola si el QR vence — refrescá si pasaron más de 30 segundos.</p>
+          <p style="color:#888;">Esta página se actualiza sola si el QR vence — no hace falta refrescar a mano.</p>
+          <script>setTimeout(() => location.reload(), 15000);</script>
         </body>
       </html>
     `);
@@ -185,6 +248,75 @@ function stopCampaignLoop() {
   }
 }
 
+// ---------- Recordatorio automático de vencimiento (5 días antes, y de nuevo 1 día antes) ----------
+// Mismo mecanismo que el goteo de arriba: preguntamos cada rato "¿hay alguien por vencer que
+// todavía no avisamos?" y mandamos como máximo uno por chequeo. Esto es proactivo (el bot
+// inicia la conversación), pero es hacia gente que YA es cliente activo — no es outreach en frío,
+// así que no choca con la regla anti-baneo de nunca escribirle primero a un desconocido.
+//
+// El espaciado entre CADA mensaje enviado es de 15-20 minutos random (no un intervalo fijo) —
+// si hay mucha gente por avisar en el mismo día, tarda lo que tenga que tardar (puede llevar
+// horas o un día entero); la prioridad es nunca sonar a bot mandando en ráfaga, no la velocidad.
+let renewalTimeoutId = null;
+let renewalLoopActive = false;
+
+function scheduleNextRenewalCheck(sock) {
+  if (!renewalLoopActive) return;
+  const delayMs = randomDelayMs(15 * 60, 20 * 60); // 15 a 20 minutos, en segundos como base
+  renewalTimeoutId = setTimeout(() => runRenewalReminderCheck(sock), delayMs);
+}
+
+async function runRenewalReminderCheck(sock) {
+  try {
+    const next = await fetchNextRenewalReminder();
+    if (next) {
+      const jid = next.whatsapp.replace(/\D/g, '') + '@s.whatsapp.net';
+      const primerNombre = (next.nombre || '').split(' ')[0] || '';
+      const saludo = primerNombre ? `Hola ${primerNombre}! 👋` : 'Hola! 👋';
+
+      const mensaje = next.tipo === '1d'
+        ? `${saludo} Te escribo porque mañana (*${next.venceFmt}*) se te vence la membresía de VFX Signals.\n\nSi todavía no sumaste el mes, podés hacerlo ahora mismo entrando a vfxsignals.com/app → "Mi cuenta" — así seguís sin cortes en el canal VIP y las señales 🙌`
+        : `${saludo} Te escribo porque tu membresía de VFX Signals vence el *${next.venceFmt}* (en ${next.diasRestantes} día${next.diasRestantes === 1 ? '' : 's'}).\n\nSi querés, ya podés sumar tiempo desde ahora entrando a vfxsignals.com/app → "Mi cuenta" — así no se te corta el acceso al canal VIP ni a las señales. Cualquier duda, escribime 🙌`;
+
+      const imageFileName = imageMap['sumar_mes'];
+      if (imageFileName) {
+        const filePath = path.join(IMAGES_DIR, imageFileName);
+        if (fs.existsSync(filePath)) {
+          try {
+            trackBotMessage(await sock.sendMessage(jid, { image: fs.readFileSync(filePath) }));
+          } catch (imgErr) {
+            console.error('[Recordatorios] Error enviando imagen de recordatorio:', imgErr.message);
+          }
+        }
+      }
+
+      await sock.sendPresenceUpdate('composing', jid);
+      await sleep(randomDelayMs(3, 8));
+      trackBotMessage(await sock.sendMessage(jid, { text: mensaje }));
+      await sock.sendPresenceUpdate('paused', jid);
+      await markRenewalReminderSent(next.referidoId, next.vence, next.tipo);
+      console.log(`[Recordatorios] Aviso (${next.tipo}) enviado a ${next.whatsapp} (vence ${next.venceFmt})`);
+    }
+  } catch (err) {
+    console.error('[Recordatorios] Error en el ciclo de recordatorios:', err?.message || 'Error desconocido');
+  }
+  scheduleNextRenewalCheck(sock); // programamos el próximo chequeo pase lo que pase
+}
+
+function startRenewalReminderLoop(sock) {
+  if (renewalLoopActive) return; // ya está corriendo, no duplicar
+  renewalLoopActive = true;
+  scheduleNextRenewalCheck(sock);
+}
+
+function stopRenewalReminderLoop() {
+  renewalLoopActive = false;
+  if (renewalTimeoutId) {
+    clearTimeout(renewalTimeoutId);
+    renewalTimeoutId = null;
+  }
+}
+
 async function startWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
@@ -197,6 +329,7 @@ async function startWhatsApp() {
     printQRInTerminal: false, // lo manejamos manualmente abajo para loguearlo más claro
     browser: ['VFX Signals Bot', 'Chrome', '1.0.0'],
   });
+  currentSock = sock; // referencia global, usada por el botón de reset en /qr
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -219,6 +352,7 @@ async function startWhatsApp() {
       console.log('[WhatsApp] Conexión cerrada.', statusCode, '¿Reconectar?', shouldReconnect);
       connectionStatus = `Conexión cerrada (${statusCode}). ${shouldReconnect ? 'Reintentando...' : 'Hay que volver a escanear el QR.'}`;
       stopCampaignLoop(); // no seguir intentando mandar goteo mientras no hay conexión
+      stopRenewalReminderLoop();
 
       // Detectar bucle de reconexión (se cae y arranca de nuevo una y otra vez sin asentarse)
       const now = Date.now();
@@ -245,6 +379,7 @@ async function startWhatsApp() {
       latestQrDataUrl = null;
       closeEventTimestamps = []; // la conexión se asentó bien, reseteamos el contador de bucle
       startCampaignLoop(sock);
+      startRenewalReminderLoop(sock);
     }
   });
 
@@ -327,7 +462,7 @@ async function startWhatsApp() {
         }
 
         const { imageTags, cleanReply: replyWithoutImages } = extractImagesAndCleanText(reply);
-        const { wantsVipLink, cleanReply } = extractVipLinkRequest(replyWithoutImages);
+        const { wantsPasswordReset, cleanReply } = extractPasswordResetRequest(replyWithoutImages);
 
         for (const tag of imageTags) {
           const fileName = imageMap[tag];
@@ -355,20 +490,20 @@ async function startWhatsApp() {
           trackBotMessage(await sock.sendMessage(jid, { text: messageChunks[i] }));
         }
 
-        // Si Adrian pidió el link VIP (usuario con membresía activa que no le abre el grupo),
-        // lo generamos y lo mandamos como mensaje aparte, justo después del texto.
-        if (wantsVipLink && detectedEmail) {
-          const vip = await generateVipLink(detectedEmail);
-          if (vip?.invite_link) {
+        // Si Adrian pidió resetear la contraseña (usuario con membresía activa que no le abre
+        // el grupo VIP o perdió el acceso), la generamos y la mandamos como mensaje aparte.
+        if (wantsPasswordReset && detectedEmail) {
+          const reset = await resetPassword(detectedEmail);
+          if (reset?.new_password) {
             await sleep(randomDelayMs(1, 3));
             trackBotMessage(await sock.sendMessage(jid, {
-              text: `🚀 Acá tenés el acceso al canal VIP (válido ${vip.expires_in_hours}h, uso único):\n${vip.invite_link}`,
+              text: `🔑 Te generé una clave nueva: *${reset.new_password}*\n\nEntrá a vfxsignals.com/app con tu mail (${detectedEmail}) y esa clave, y ahí tocá el botón "Abrir bot" para reconectar tu Telegram y volver a acceder al canal VIP 👌`,
             }));
           } else {
-            console.error(`[WhatsApp] No se pudo generar link VIP para ${detectedEmail}`);
+            console.error(`[WhatsApp] No se pudo resetear la contraseña para ${detectedEmail}`);
             // No le mandamos nada raro al cliente — si falla, queda como si el bot no hubiera
             // podido resolverlo solo; mejor que Víctor lo revise a mano.
-            await markUrgent(key, `Falló generación de link VIP para ${detectedEmail}`);
+            await markUrgent(key, `Falló el reseteo de contraseña para ${detectedEmail}`);
           }
         }
 
