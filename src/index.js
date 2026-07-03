@@ -15,6 +15,8 @@ import {
   extractVipLinkRequest,
   splitIntoMessageChunks,
   extractEmail,
+  cacheEmail,
+  getCachedEmail,
   checkClienteStatus,
   buildClienteStatusContext,
   generateVipLink,
@@ -52,10 +54,13 @@ bot.on('message', async (msg) => {
     await bot.sendChatAction(chatId, 'typing');
     await sleep(randomDelayMs(5, 12));
 
-    // Si el usuario mandó un mail, consultamos su estado real en la plataforma VFX
-    // y se lo pasamos a Claude como contexto verificado (ver regla 17 del prompt).
+    // Si el usuario mandó un mail (ahora o en algún mensaje anterior de este chat), consultamos
+    // su estado real en la plataforma VFX (ver regla 17 del prompt). El mail queda "pegado" al
+    // chat para que funcione incluso en mensajes posteriores donde no lo vuelve a escribir.
     let messageForAI = text;
-    const detectedEmail = extractEmail(text);
+    const emailInMessage = extractEmail(text);
+    if (emailInMessage) cacheEmail(key, emailInMessage);
+    const detectedEmail = emailInMessage || getCachedEmail(key);
     if (detectedEmail) {
       const status = await checkClienteStatus(detectedEmail);
       const context = buildClienteStatusContext(status);
