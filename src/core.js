@@ -115,6 +115,21 @@ export function pushToHistory(chatKey, role, content) {
   conversationHistory.set(chatKey, history);
 }
 
+// ---------- Mail "pegajoso" por chat ----------
+// Una vez que la persona menciona su mail en algún punto de la conversación, lo recordamos para
+// TODOS los mensajes siguientes de ese mismo chat — no solo para el mensaje puntual donde lo
+// escribió. Así, si dos mensajes después dice "no me anda la contraseña" sin repetir el mail,
+// igual podemos consultar su estado real en la plataforma en vez de quedarnos a ciegas.
+const chatEmailCache = new Map(); // chatKey -> email
+
+export function getCachedEmail(chatKey) {
+  return chatEmailCache.get(chatKey) || null;
+}
+
+export function cacheEmail(chatKey, email) {
+  chatEmailCache.set(chatKey, email);
+}
+
 // ---------- Regla de pausa de 24hs ----------
 // chatKey tiene que ser único entre canales, ej. "tg:123456" o "wa:59598..." para no mezclar chats.
 export async function isHumanActive(chatKey) {
