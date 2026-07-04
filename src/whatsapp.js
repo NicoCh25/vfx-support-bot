@@ -428,8 +428,15 @@ async function startWhatsApp() {
           continue;
         }
 
+        // Antes: mostrábamos "escribiendo..." y esperábamos 5-12 segundos — eso es un patrón
+        // clarísimo de bot (ninguna persona ve un mensaje y contesta siempre así de rápido).
+        // Ahora: nos quedamos en silencio 1-3 minutos (como alguien que vio el mensaje y todavía
+        // no pudo/quiso contestar), y recién en los últimos segundos mostramos "escribiendo...".
+        // Mostrar "escribiendo" continuo durante los 1-3 minutos sería igual de raro que
+        // responder al toque, así que el typing indicator se reserva para el final nomás.
+        await sleep(randomDelayMs(60, 180));
         await sock.sendPresenceUpdate('composing', jid);
-        await sleep(randomDelayMs(5, 12));
+        await sleep(randomDelayMs(3, 8));
 
         let messageForAI = text;
 
