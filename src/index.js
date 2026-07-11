@@ -12,14 +12,14 @@ import {
   markUrgent,
   generateReply,
   extractImagesAndCleanText,
-  extractVipLinkRequest,
+  extractPasswordResetRequest,
   splitIntoMessageChunks,
   extractEmail,
   cacheEmail,
   getCachedEmail,
   checkClienteStatus,
   buildClienteStatusContext,
-  generateVipLink,
+  resetPassword,
   randomDelayMs,
   sleep,
 } from './core.js';
@@ -79,7 +79,7 @@ bot.on('message', async (msg) => {
     }
 
     const { imageTags, cleanReply: replyWithoutImages } = extractImagesAndCleanText(reply);
-    const { wantsVipLink, cleanReply } = extractVipLinkRequest(replyWithoutImages);
+    const { wantsPasswordReset, cleanReply } = extractPasswordResetRequest(replyWithoutImages);
 
     for (const tag of imageTags) {
       const fileName = imageMap[tag];
@@ -112,16 +112,16 @@ bot.on('message', async (msg) => {
       }
     }
 
-    // Si Adrian pidió el link VIP (usuario con membresía activa que no le abre el grupo),
-    // lo generamos y lo mandamos como mensaje aparte, justo después del texto.
-    if (wantsVipLink && detectedEmail) {
-      const vip = await generateVipLink(detectedEmail);
-      if (vip?.invite_link) {
+    // Si Adrian pidió resetear la contraseña (usuario con membresía activa que no le abre
+    // el grupo VIP o perdió el acceso), la generamos y la mandamos como mensaje aparte.
+    if (wantsPasswordReset && detectedEmail) {
+      const reset = await resetPassword(detectedEmail);
+      if (reset?.new_password) {
         await sleep(randomDelayMs(1, 3));
-        await bot.sendMessage(chatId, `🚀 Acá tenés el acceso al canal VIP (válido ${vip.expires_in_hours}h, uso único):\n${vip.invite_link}`);
+        await bot.sendMessage(chatId, `🔑 Te generé una clave nueva: *${reset.new_password}*\n\nEntrá a vfxsignals.com/app con tu mail (${detectedEmail}) y esa clave, y ahí tocá el botón "Abrir bot" para reconectar tu Telegram y volver a acceder al canal VIP 👌`, { parse_mode: 'Markdown' });
       } else {
-        console.error(`[Telegram] No se pudo generar link VIP para ${detectedEmail}`);
-        await markUrgent(key, `Falló generación de link VIP para ${detectedEmail}`);
+        console.error(`[Telegram] No se pudo resetear la contraseña para ${detectedEmail}`);
+        await markUrgent(key, `Falló el reseteo de contraseña para ${detectedEmail}`);
       }
     }
   } catch (err) {
